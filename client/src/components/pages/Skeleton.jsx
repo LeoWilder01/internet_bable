@@ -1,45 +1,208 @@
-import React, { useContext } from "react";
+import React, { useState, useEffect, useContext, useCallback } from "react";
 import { GoogleLogin, googleLogout } from "@react-oauth/google";
-
-import "../../utilities.css";
-import "./Skeleton.css";
 import { UserContext } from "../App";
+import SlangSpace from "../SlangSpace";
+import { get, post } from "../../utilities";
+import "./Skeleton.css";
 
 const Skeleton = () => {
   const { userId, handleLogin, handleLogout } = useContext(UserContext);
+
+  const [slangs, setSlangs] = useState([]);
+  const [currentSlang, setCurrentSlang] = useState(null);
+  const [highlightSlang, setHighlightSlang] = useState(null);
+  const [hoveredComment, setHoveredComment] = useState(null);
+  const [input, setInput] = useState("");
+  const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [modal, setModal] = useState(null);
+
+  // load all slangs from db
+  useEffect(() => {
+    get("/api/slangs").then((data) => {
+      setSlangs(data || []);
+    });
+  }, []);
+
+  const doSearch = () => {
+    if (!input.trim() || loading) return;
+
+    const term = input.trim().toLowerCase();
+    setLoading(true);
+    setStatus("connecting...");
+    setCurrentSlang(null);
+
+    const evtSource = new EventSource(`/api/slang/${encodeURIComponent(term)}/stream`);
+
+    evtSource.addEventListener("status", (e) => {
+      setStatus(JSON.parse(e.data).msg);
+    });
+
+    evtSource.addEventListener("cached", (e) => {
+      const data = JSON.parse(e.data);
+      setCurrentSlang(data);
+      setHighlightSlang(data.term);
+      setStatus("loaded from db");
+    });
+
+    evtSource.addEventListener("analysis", () => {
+      setStatus("got analysis, fetching reddit...");
+    });
+
+    evtSource.addEventListener("result", (e) => {
+      const data = JSON.parse(e.data);
+      setCurrentSlang(data);
+      setHighlightSlang(data.term);
+      setSlangs((prev) => {
+        if (prev.find((s) => s.term === data.term)) return prev;
+        return [...prev, data];
+      });
+      setStatus("done");
+    });
+
+    evtSource.addEventListener("error", (e) => {
+      setStatus("error: " + JSON.parse(e.data).msg);
+      evtSource.close();
+      setLoading(false);
+    });
+
+    evtSource.addEventListener("done", () => {
+      evtSource.close();
+      setLoading(false);
+    });
+
+    evtSource.onerror = () => {
+      setStatus("connection failed");
+      evtSource.close();
+      setLoading(false);
+    };
+  };
+
+  const saveSlang = async () => {
+    if (!currentSlang || currentSlang.fromDb) return;
+
+    try {
+      await post("/api/slang/save", {
+        term: currentSlang.term,
+        currentMeaning: currentSlang.currentMeaning,
+        periods: currentSlang.periods,
+      });
+      setCurrentSlang({ ...currentSlang, fromDb: true });
+      setStatus("saved");
+    } catch (err) {
+      setStatus("save failed");
+    }
+  };
+
+  const onHoverComment = useCallback((comment, slangTerm) => {
+    setHoveredComment(comment ? { ...comment, slangTerm } : null);
+  }, []);
+
+  const onClickComment = useCallback((comment, slangTerm) => {
+    setModal({ comment, slangTerm });
+    setHighlightSlang(slangTerm);
+    const found = slangs.find((s) => s.term === slangTerm);
+    if (found) setCurrentSlang(found);
+  }, [slangs]);
+
   return (
-    <>
-      {userId ? (
-        <button
-          onClick={() => {
-            googleLogout();
-            handleLogout();
-          }}
-        >
-          Logout
-        </button>
-      ) : (
-        <GoogleLogin onSuccess={handleLogin} onError={(err) => console.log(err)} />
+    <div className="app-container">
+      {/* Left: 3D space */}
+      <div className="left-panel">
+        <SlangSpace
+          slangs={slangs}
+          highlightSlang={highlightSlang}
+          onHoverComment={onHoverComment}
+          onClickComment={onClickComment}
+        />
+
+        {/* hover info bottom-left */}
+        {hoveredComment && (
+          <div className="hover-info">
+            <p className="hover-user">u/{hoveredComment.user}</p>
+            {hoveredComment.time && <p className="hover-time">{hoveredComment.time}</p>}
+            <p className="hover-text">{hoveredComment.text}</p>
+          </div>
+        )}
+      </div>
+
+      {/* Right: search + analysis */}
+      <div className="right-panel">
+        <div className="header">
+          <h1>Slang Tracker</h1>
+          {userId ? (
+            <button onClick={() => { googleLogout(); handleLogout(); }}>logout</button>
+          ) : (
+            <GoogleLogin onSuccess={handleLogin} onError={console.log} />
+          )}
+        </div>
+
+        {userId && (
+          <>
+            <div className="search-box">
+              <input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && doSearch()}
+                placeholder="enter slang..."
+                disabled={loading}
+              />
+              <button onClick={doSearch} disabled={loading}>
+                {loading ? "..." : "go"}
+              </button>
+            </div>
+
+            {status && <p className="status">{status}</p>}
+
+            {currentSlang && (
+              <div className="slang-info">
+                <h2>"{currentSlang.term}"</h2>
+                <p className="meaning">{currentSlang.currentMeaning}</p>
+
+                <div className="timeline">
+                  {currentSlang.periods?.map((p, i) => (
+                    <div key={i} className="period">
+                      <div className="period-head">
+                        <span className="time">{p.timeRange}</span>
+                      </div>
+                      <p className="period-meaning">{p.meaning}</p>
+                      <p className="origin">{p.origin}</p>
+                      <p className="comment-count">
+                        {p.comments?.length || 0} comments
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
+                {!currentSlang.fromDb && (
+                  <button className="save-btn" onClick={saveSlang}>
+                    save to collection
+                  </button>
+                )}
+                {currentSlang.fromDb && (
+                  <p className="saved-hint">in collection</p>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        {!userId && <p className="login-hint">login to continue</p>}
+      </div>
+
+      {/* Modal */}
+      {modal && (
+        <div className="modal-overlay" onClick={() => setModal(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <button className="close-btn" onClick={() => setModal(null)}>×</button>
+            <p className="modal-user">u/{modal.comment.user}</p>
+            {modal.comment.time && <p className="modal-time">{modal.comment.time}</p>}
+            <p className="modal-text">{modal.comment.text}</p>
+            <p className="modal-slang">slang: {modal.slangTerm}</p>
+          </div>
+        </div>
       )}
-      <h1>Good luck on your project :)</h1>
-      <h2> What you need to change in this skeleton</h2>
-      <ul>
-        <li>
-          Change the Frontend CLIENT_ID (index.jsx) to your team's CLIENT_ID (obtain this at
-          http://weblab.is/clientid)
-        </li>
-        <li>Change the Server CLIENT_ID to the same CLIENT_ID (auth.js)</li>
-        <li>
-          Change the Database SRV (mongoConnectionURL) for Atlas (server.js). You got this in the
-          MongoDB setup.
-        </li>
-        <li>Change the Database Name for MongoDB to whatever you put in the SRV (server.js)</li>
-      </ul>
-      <h2>How to go from this skeleton to our actual app</h2>
-      <a href="https://docs.google.com/document/d/110JdHAn3Wnp3_AyQLkqH2W8h5oby7OVsYIeHYSiUzRs/edit?usp=sharing">
-        Check out this getting started guide
-      </a>
-    </>
+    </div>
   );
 };
 

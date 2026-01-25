@@ -1,1 +1,263 @@
-/* Fill me in :) */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: #000;
+  color: #fff;
+  font-family: "Courier New", monospace;
+}
+
+.app-container {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+.left-panel {
+  flex: 1;
+  background: #000;
+  position: relative;
+}
+
+/* hover info bottom-left */
+.hover-info {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  background: rgba(0, 0, 0, 0.85);
+  border: 1px solid #333;
+  padding: 15px;
+  max-width: 400px;
+  max-height: 200px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.hover-user {
+  color: #888;
+  font-size: 13px;
+  margin: 0 0 3px 0;
+}
+
+.hover-time {
+  color: #555;
+  font-size: 11px;
+  margin: 0 0 10px 0;
+}
+
+.hover-text {
+  color: #aaa;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.right-panel {
+  width: 360px;
+  background: #0a0a0a;
+  border-left: 1px solid #222;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.header h1 {
+  font-size: 18px;
+  font-weight: normal;
+  margin: 0;
+  color: #888;
+}
+
+.header button {
+  background: none;
+  border: 1px solid #444;
+  color: #666;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.search-box {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 15px;
+}
+
+.search-box input {
+  flex: 1;
+  background: #111;
+  border: 1px solid #333;
+  color: #fff;
+  padding: 8px;
+  font-family: inherit;
+}
+
+.search-box button {
+  background: #222;
+  border: 1px solid #444;
+  color: #888;
+  padding: 8px 15px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.status {
+  color: #555;
+  font-size: 12px;
+  margin: 10px 0;
+}
+
+.slang-info h2 {
+  font-size: 16px;
+  font-weight: normal;
+  color: #aaa;
+  margin: 0 0 10px 0;
+}
+
+.meaning {
+  color: #666;
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+
+.timeline {
+  border-left: 1px solid #333;
+  padding-left: 15px;
+  margin-left: 5px;
+}
+
+.period {
+  margin-bottom: 20px;
+  position: relative;
+}
+
+.period::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  background: #444;
+  position: absolute;
+  left: -19px;
+  top: 6px;
+}
+
+.period-head .time {
+  color: #888;
+  font-size: 13px;
+}
+
+.period-meaning {
+  color: #666;
+  font-size: 12px;
+  margin: 5px 0;
+}
+
+.origin {
+  color: #444;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.comment-count {
+  color: #333;
+  font-size: 11px;
+  margin-top: 5px;
+}
+
+.save-btn {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  color: #888;
+  padding: 8px 15px;
+  cursor: pointer;
+  font-family: inherit;
+  margin-top: 20px;
+  width: 100%;
+}
+
+.save-btn:hover {
+  border-color: #555;
+}
+
+.saved-hint {
+  color: #444;
+  font-size: 12px;
+  margin-top: 20px;
+}
+
+.login-hint {
+  color: #444;
+  text-align: center;
+  margin-top: 50px;
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: #111;
+  border: 1px solid #333;
+  padding: 25px;
+  max-width: 500px;
+  max-height: 80vh;
+  overflow-y: auto;
+  position: relative;
+}
+
+.close-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: none;
+  border: none;
+  color: #555;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.modal-user {
+  color: #888;
+  font-size: 14px;
+  margin: 0 0 5px 0;
+}
+
+.modal-time {
+  color: #444;
+  font-size: 12px;
+  margin: 0 0 15px 0;
+}
+
+.modal-text {
+  color: #aaa;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0 0 15px 0;
+}
+
+.modal-slang {
+  color: #333;
+  font-size: 11px;
+  margin: 0;
+}
