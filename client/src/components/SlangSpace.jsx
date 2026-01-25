@@ -13,7 +13,9 @@ function splitIntoFiveClusters(comments) {
   let sizes = [];
   let remaining = total;
 
-  for (let i = 0; i < 4; i++) {
+  ///////////////////////////////////////////////
+
+  for (let i = 0; i < 6; i++) {
     const maxForThis = Math.min(25, remaining - (4 - i) * 5);
     const minForThis = Math.max(5, remaining - (4 - i) * 25);
     const size = Math.floor(Math.random() * (maxForThis - minForThis + 1)) + minForThis;
@@ -24,8 +26,8 @@ function splitIntoFiveClusters(comments) {
 
   // if any size is out of range, just distribute evenly
   if (sizes.some((s) => s < 1)) {
-    const each = Math.floor(total / 5);
-    sizes = [each, each, each, each, total - each * 4];
+    const each = Math.floor(total / 7);
+    sizes = [each, each, each, each, each, each, total - each * 6];
   }
 
   const clusters = [];
@@ -163,34 +165,30 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
       mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
-      // check hover
       raycaster.setFromCamera(mouse, camera);
       const intersects = raycaster.intersectObjects(allMeshesRef.current);
 
       if (intersects.length > 0) {
         const mesh = intersects[0].object;
         if (mesh !== hoveredMesh) {
-          // unhighlight old
+          // unhighlight old - restore normal opacity
           if (hoveredMesh && hoveredMesh.material) {
-            hoveredMesh.material.emissive?.setHex(0x000000);
+            hoveredMesh.material.opacity = 0.9;
           }
           hoveredMesh = mesh;
-          // highlight new
+          // highlight new - make it brighter
           if (mesh.material) {
-            if (!mesh.material.emissive) {
-              mesh.material = new THREE.MeshBasicMaterial({
-                map: mesh.material.map,
-                side: THREE.DoubleSide,
-              });
-            }
+            mesh.material.opacity = 1.0;
           }
           onHoverComment(mesh.userData.comment, mesh.userData.slangTerm);
         }
       } else {
-        if (hoveredMesh) {
-          hoveredMesh = null;
-          onHoverComment(null, null);
+        // mouse left all meshes - unhighlight
+        if (hoveredMesh && hoveredMesh.material) {
+          hoveredMesh.material.opacity = 0.9;
         }
+        hoveredMesh = null;
+        onHoverComment(null, null);
       }
     };
 
@@ -208,17 +206,8 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
     renderer.domElement.addEventListener("mousemove", onMouseMove);
     renderer.domElement.addEventListener("click", onClick);
 
-    let time = 0;
     const animate = () => {
       requestAnimationFrame(animate);
-      time += 0.0003;
-
-      scene.children.forEach((group) => {
-        if (group.userData.isCluster) {
-          group.rotation.y = time * group.userData.speed;
-        }
-      });
-
       controls.update();
       renderer.render(scene, camera);
     };
@@ -269,7 +258,6 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
         const group = new THREE.Group();
         group.userData.isCluster = true;
         group.userData.slangTerm = slang.term;
-        group.userData.speed = 0.1 + Math.random() * 0.2;
 
         // smaller cluster = bigger rectangles
         const sizeScale = Math.max(0.8, Math.min(2, 15 / cluster.length));
@@ -277,22 +265,28 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
         const planeH = 4 * sizeScale;
         const gap = 0.3 * sizeScale;
 
-        // position - spread out based on cluster index
-        const dist = 80 + clusterIdx * 40 + Math.random() * 30;
+        // distance based on average comment time (older = closer to origin)
+        const avgTime = cluster.reduce((sum, c) => {
+          if (!c.time) return sum + Date.now();
+          return sum + new Date(c.time).getTime();
+        }, 0) / cluster.length;
+
+        const oldestTime = new Date("2010-01-01").getTime();
+        const newestTime = Date.now();
+        const timeRatio = (avgTime - oldestTime) / (newestTime - oldestTime);
+        const dist = 50 + timeRatio * 200; // older=50, newer=250
+
+        // random position on sphere
         const theta = Math.random() * Math.PI * 2;
         const phi = (Math.random() - 0.5) * Math.PI * 0.8;
 
-        group.position.set(
-          dist * Math.cos(phi) * Math.cos(theta),
-          dist * Math.sin(phi),
-          dist * Math.cos(phi) * Math.sin(theta)
-        );
+        const x = dist * Math.cos(phi) * Math.cos(theta);
+        const y = dist * Math.sin(phi);
+        const z = dist * Math.cos(phi) * Math.sin(theta);
+        group.position.set(x, y, z);
 
-        group.rotation.set(
-          Math.random() * Math.PI,
-          Math.random() * Math.PI,
-          Math.random() * Math.PI
-        );
+        // face toward origin (0, 0, 0)
+        group.lookAt(0, 0, 0);
 
         arranged.forEach((comment) => {
           const texture = createTextTexture(comment, sizeScale);
@@ -325,14 +319,19 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
     });
   }, [slangs]);
 
-  // update highlight for slang
+  // update highlight for clicked slang - add glow effect via color
   useEffect(() => {
     if (!sceneRef.current) return;
 
     allMeshesRef.current.forEach((mesh) => {
       if (mesh.material) {
         const isHighlight = mesh.userData.slangTerm === highlightSlang;
-        mesh.material.opacity = isHighlight ? 1 : 0.5;
+        // tint the material slightly for highlighted slang
+        if (isHighlight) {
+          mesh.material.color = new THREE.Color(1.2, 1.2, 1.2); // slightly brighter
+        } else {
+          mesh.material.color = new THREE.Color(1, 1, 1); // normal
+        }
       }
     });
   }, [highlightSlang]);
