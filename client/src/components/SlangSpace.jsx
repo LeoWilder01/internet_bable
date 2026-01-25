@@ -99,7 +99,7 @@ function createTextTexture(comment, scale = 1) {
 
   // black bold text
   ctx.fillStyle = "#000000";
-  const fontSize = Math.floor(16 * scale);
+  const fontSize = Math.floor(64 * scale);
   ctx.font = `bold ${fontSize}px monospace`;
 
   // wrap text
@@ -273,8 +273,8 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
 
         // smaller cluster = bigger rectangles
         const sizeScale = Math.max(0.8, Math.min(2, 15 / cluster.length));
-        const planeW = 8 * sizeScale;
-        const planeH = 4 * sizeScale;
+        const planeW = 18 * sizeScale;
+        const planeH = 9 * sizeScale;
         const gap = 0.3 * sizeScale;
 
         // position - spread out based on cluster index
