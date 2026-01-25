@@ -2,39 +2,30 @@ import React, { useRef, useEffect, useState, useCallback } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 
-// split comments into exactly 5 clusters with varying sizes (5-25 each)
-function splitIntoFiveClusters(comments) {
+// split comments into clusters by time (similar times grouped together)
+function splitIntoClustersByTime(comments) {
   if (!comments || comments.length === 0) return [];
 
-  const shuffled = [...comments].sort(() => Math.random() - 0.5);
-  const total = shuffled.length;
+  // sort by time (oldest first, no-time goes to end)
+  const sorted = [...comments].sort((a, b) => {
+    const ta = a.time ? new Date(a.time).getTime() : Infinity;
+    const tb = b.time ? new Date(b.time).getTime() : Infinity;
+    return ta - tb;
+  });
 
-  // generate 5 random sizes that sum to total, each between 5-25
-  let sizes = [];
-  let remaining = total;
-
-  ///////////////////////////////////////////////
-
-  for (let i = 0; i < 6; i++) {
-    const maxForThis = Math.min(25, remaining - (4 - i) * 5);
-    const minForThis = Math.max(5, remaining - (4 - i) * 25);
-    const size = Math.floor(Math.random() * (maxForThis - minForThis + 1)) + minForThis;
-    sizes.push(size);
-    remaining -= size;
-  }
-  sizes.push(remaining); // last one gets the rest
-
-  // if any size is out of range, just distribute evenly
-  if (sizes.some((s) => s < 1)) {
-    const each = Math.floor(total / 7);
-    sizes = [each, each, each, each, each, each, total - each * 6];
-  }
+  const total = sorted.length;
+  const clusterCount = Math.min(NUM_CLUSTERS, total);
+  const baseSize = Math.floor(total / clusterCount);
+  const remainder = total % clusterCount;
 
   const clusters = [];
   let idx = 0;
-  for (const size of sizes) {
+
+  for (let i = 0; i < clusterCount; i++) {
+    // distribute remainder across first few clusters
+    const size = baseSize + (i < remainder ? 1 : 0);
     if (size > 0) {
-      clusters.push(shuffled.slice(idx, idx + size));
+      clusters.push(sorted.slice(idx, idx + size));
       idx += size;
     }
   }
@@ -86,10 +77,15 @@ function arrangeCluster(comments) {
 }
 
 /////////////////////////////////
-const TEXT_FONT_SIZE = 28;
-const ORIENTATION_RANDOMNESS = 0.3;
+const TEXT_FONT_SIZE = 120; // 方片上的字号
+const ORIENTATION_RANDOMNESS = 0.55; // 簇朝向随机度
+const NUM_CLUSTERS = 7; // 每个 slang 分成几个簇
 
-// create text texture - only comment text, bold
+const TILE_WIDTH = 30; // 方片基础宽度
+const TILE_HEIGHT = 20; // 方片基础高度
+const TILE_GAP = 0.3; // 方片间距
+
+//only first 5 words for preview
 function createTextTexture(comment, scale = 1) {
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
@@ -108,15 +104,18 @@ function createTextTexture(comment, scale = 1) {
   const fontSize = Math.floor(TEXT_FONT_SIZE * scale);
   ctx.font = `bold ${fontSize}px monospace`;
 
-  // wrap text
+  // only first 5 words
   const text = comment.text || "";
-  const words = text.split(" ");
+  const words = text.split(" ").slice(0, 5);
+  const preview = words.join(" ") + (text.split(" ").length > 5 ? "..." : "");
+
+  // wrap text
   let line = "";
   let y = fontSize + 5;
   const maxWidth = w - 20;
   const lineHeight = fontSize + 4;
 
-  for (const word of words) {
+  for (const word of preview.split(" ")) {
     const test = line + word + " ";
     if (ctx.measureText(test).width > maxWidth) {
       ctx.fillText(line, 10, y);
@@ -254,7 +253,7 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
 
       if (allComments.length === 0) return;
 
-      const clusters = splitIntoFiveClusters(allComments);
+      const clusters = splitIntoClustersByTime(allComments);
 
       clusters.forEach((cluster, clusterIdx) => {
         const { arranged, cols, rows } = arrangeCluster(cluster);
@@ -276,10 +275,20 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
             return sum + new Date(c.time).getTime();
           }, 0) / cluster.length;
 
-        const oldestTime = new Date("2010-01-01").getTime();
+        // 2016年及更早 -> 非常靠近原点 (dist ~20-40)
+        // 2024年+ -> 远离原点 (dist ~250)
+        const ancientTime = new Date("2016-01-01").getTime();
         const newestTime = Date.now();
-        const timeRatio = (avgTime - oldestTime) / (newestTime - oldestTime);
-        const dist = 50 + timeRatio * 200; // older=50, newer=250
+
+        let dist;
+        if (avgTime <= ancientTime) {
+          // 2016及更早：20-40之间
+          dist = 20 + Math.random() * 20;
+        } else {
+          // 2016之后：40-250，按时间线性
+          const timeRatio = (avgTime - ancientTime) / (newestTime - ancientTime);
+          dist = 40 + timeRatio * 260;
+        }
 
         // random position on sphere
         const theta = Math.random() * Math.PI * 2;
