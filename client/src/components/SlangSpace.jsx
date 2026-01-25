@@ -85,6 +85,10 @@ function arrangeCluster(comments) {
   return { arranged, cols, rows };
 }
 
+/////////////////////////////////
+const TEXT_FONT_SIZE = 28;
+const ORIENTATION_RANDOMNESS = 0.3;
+
 // create text texture - only comment text, bold
 function createTextTexture(comment, scale = 1) {
   const canvas = document.createElement("canvas");
@@ -101,7 +105,7 @@ function createTextTexture(comment, scale = 1) {
 
   // black bold text
   ctx.fillStyle = "#000000";
-  const fontSize = Math.floor(16 * scale);
+  const fontSize = Math.floor(TEXT_FONT_SIZE * scale);
   ctx.font = `bold ${fontSize}px monospace`;
 
   // wrap text
@@ -266,10 +270,11 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
         const gap = 0.3 * sizeScale;
 
         // distance based on average comment time (older = closer to origin)
-        const avgTime = cluster.reduce((sum, c) => {
-          if (!c.time) return sum + Date.now();
-          return sum + new Date(c.time).getTime();
-        }, 0) / cluster.length;
+        const avgTime =
+          cluster.reduce((sum, c) => {
+            if (!c.time) return sum + Date.now();
+            return sum + new Date(c.time).getTime();
+          }, 0) / cluster.length;
 
         const oldestTime = new Date("2010-01-01").getTime();
         const newestTime = Date.now();
@@ -287,6 +292,11 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
 
         // face toward origin (0, 0, 0)
         group.lookAt(0, 0, 0);
+
+        // add random rotation offset for chaos effect
+        group.rotation.x += (Math.random() - 0.5) * Math.PI * ORIENTATION_RANDOMNESS;
+        group.rotation.y += (Math.random() - 0.5) * Math.PI * ORIENTATION_RANDOMNESS;
+        group.rotation.z += (Math.random() - 0.5) * Math.PI * ORIENTATION_RANDOMNESS;
 
         arranged.forEach((comment) => {
           const texture = createTextTexture(comment, sizeScale);
