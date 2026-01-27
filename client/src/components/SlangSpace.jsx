@@ -35,7 +35,18 @@ const ZOOM_MAX = 400; // 最远
 const NORMAL_OPACITY = 0.5; // 非高亮时的透明度
 const DIRECT_HIGHLIGHT_OPACITY = 1.0; // 直接悬停的片
 const SLANG_HIGHLIGHT_OPACITY = 0.7; // 同 slang 其他片
-const VISITED_OPACITY = 1.0; // 被直接悬停过后离开的片
+const VISITED_OPACITY = 0.7; // 被直接悬停过后离开的片
+
+// 簇尺寸相关
+const CLUSTER_SIZE_MIN = 0.8; // 随机尺寸下限
+const CLUSTER_SIZE_MAX = 2.0; // 随机尺寸上限
+const LAYER_SIZE_FACTOR = 0.1; // 层级尺寸因子：最内层乘(1-此值)，最外层乘(1+此值)，中间层不变
+
+// Cube 边框相关
+const CUBE_EDGE_OPACITY = 0.6; // cube 边框透明度 (0 = 隐形, 1 = 完全可见)
+const CUBE_EDGE_COLOR = 0x444444; // 边框颜色
+const CUBE_EDGE_DASH_SIZE = 1; // 虚线段长度
+const CUBE_EDGE_GAP_SIZE = 2; // 虚线间隔长度
 /////////////////////////////////
 
 // 按时间分簇
@@ -398,6 +409,62 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
     };
   }, [onHoverComment, onClickComment]);
 
+  // 创建 cube 的 12 条虚线边
+  const createCubeEdges = (cubeSize) => {
+    if (CUBE_EDGE_OPACITY <= 0) return null;
+
+    const half = cubeSize / 2;
+    const vertices = [
+      // 8 个顶点
+      [-half, -half, -half],
+      [half, -half, -half],
+      [half, half, -half],
+      [-half, half, -half],
+      [-half, -half, half],
+      [half, -half, half],
+      [half, half, half],
+      [-half, half, half],
+    ];
+
+    // 12 条边的顶点索引对
+    const edges = [
+      [0, 1],
+      [1, 2],
+      [2, 3],
+      [3, 0], // 后面
+      [4, 5],
+      [5, 6],
+      [6, 7],
+      [7, 4], // 前面
+      [0, 4],
+      [1, 5],
+      [2, 6],
+      [3, 7], // 连接前后
+    ];
+
+    const edgeGroup = new THREE.Group();
+
+    const material = new THREE.LineDashedMaterial({
+      color: CUBE_EDGE_COLOR,
+      transparent: true,
+      opacity: CUBE_EDGE_OPACITY,
+      dashSize: CUBE_EDGE_DASH_SIZE,
+      gapSize: CUBE_EDGE_GAP_SIZE,
+    });
+
+    edges.forEach(([i, j]) => {
+      const geometry = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(...vertices[i]),
+        new THREE.Vector3(...vertices[j]),
+      ]);
+      const line = new THREE.Line(geometry, material);
+      line.computeLineDistances(); // 虚线需要这个
+      edgeGroup.add(line);
+    });
+
+    return edgeGroup;
+  };
+
   // 创建或获取某个周期的 cube group
   const getOrCreateCubeGroup = (scene, periodIndex) => {
     if (cubeGroupsRef.current.has(periodIndex)) {
@@ -411,6 +478,13 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
     group.rotation.x = rotation * 0.7;
     group.rotation.y = rotation;
     group.rotation.z = rotation * 0.4;
+
+    // 添加虚线边框
+    const cubeSize = getCubeSize(periodIndex);
+    const edges = createCubeEdges(cubeSize);
+    if (edges) {
+      group.add(edges);
+    }
 
     scene.add(group);
     cubeGroupsRef.current.set(periodIndex, group);
@@ -456,7 +530,20 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
         // 在面上随机旋转 (0°, 90°, 180°, 270°)
         clusterGroup.rotateZ(extraRotation);
 
-        const sizeScale = Math.max(0.8, Math.min(2, 15 / cluster.length));
+        // 随机基础尺寸，增加参差感
+        const randomBaseScale =
+          CLUSTER_SIZE_MIN + Math.random() * (CLUSTER_SIZE_MAX - CLUSTER_SIZE_MIN);
+
+        // 结合簇内数量调整（数量多时略小）
+        const countAdjust = Math.max(0.7, Math.min(1.3, 10 / cluster.length));
+
+        // 层级尺寸乘数：最内层(1-FACTOR)，中间层1，最外层(1+FACTOR)
+        const totalPeriods = getTotalPeriods();
+        const normalizedLayer = totalPeriods > 1 ? periodIndex / (totalPeriods - 1) : 0.5;
+        const layerMultiplier = 1 + LAYER_SIZE_FACTOR * (normalizedLayer - 0.5) * 2;
+
+        const sizeScale = randomBaseScale * countAdjust * layerMultiplier;
+
         const planeW = TILE_BASE_WIDTH * sizeScale;
         const planeH = TILE_BASE_HEIGHT * sizeScale;
         const gap = TILE_GAP * sizeScale;
