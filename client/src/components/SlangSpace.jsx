@@ -1,75 +1,151 @@
-import React, { useRef, useEffect, useState, useCallback } from "react";
+import React, { useRef, useEffect } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 
-// split comments into exactly 5 clusters with varying sizes (5-25 each)
-function splitIntoFiveClusters(comments) {
+/////////////////////////////////
+// 可调参数
+const TEXT_FONT_SIZE = 56;
+const TILE_BASE_WIDTH = 5;
+const TILE_BASE_HEIGHT = 3;
+const TILE_GAP = 0.3;
+
+// cube 时间相关
+const START_YEAR = 2019;
+const START_MONTH = 1; // 起始月份 (1-12)
+const MONTHS_PER_CUBE = 6; // 每个 cube 代表几个月
+const END_YEAR = 2025;
+const END_MONTH = 12; // 结束月份
+
+// cube 尺寸相关
+const INNER_CUBE_SIZE = 40; // 最内层 cube 的大小
+const OUTER_CUBE_SIZE = 320; // 最外层 cube 的大小
+const CUBE_TWIST = 0.7; // 每层 cube 之间的扭转角度 (弧度)
+/////////////////////////////////
+
+// 按时间分簇
+function splitIntoClustersByTime(comments) {
   if (!comments || comments.length === 0) return [];
 
-  const shuffled = [...comments].sort(() => Math.random() - 0.5);
-  const total = shuffled.length;
+  const sorted = [...comments].sort((a, b) => {
+    const ta = a.time ? new Date(a.time).getTime() : Infinity;
+    const tb = b.time ? new Date(b.time).getTime() : Infinity;
+    return ta - tb;
+  });
 
-  // generate 5 random sizes that sum to total, each between 5-25
-  let sizes = [];
-  let remaining = total;
-
-  for (let i = 0; i < 4; i++) {
-    const maxForThis = Math.min(25, remaining - (4 - i) * 5);
-    const minForThis = Math.max(5, remaining - (4 - i) * 25);
-    const size = Math.floor(Math.random() * (maxForThis - minForThis + 1)) + minForThis;
-    sizes.push(size);
-    remaining -= size;
-  }
-  sizes.push(remaining); // last one gets the rest
-
-  // if any size is out of range, just distribute evenly
-  if (sizes.some((s) => s < 1)) {
-    const each = Math.floor(total / 5);
-    sizes = [each, each, each, each, total - each * 4];
-  }
+  // 分成 5 个簇
+  const total = sorted.length;
+  const clusterCount = Math.min(10, total);
+  const baseSize = Math.floor(total / clusterCount);
+  const remainder = total % clusterCount;
 
   const clusters = [];
   let idx = 0;
-  for (const size of sizes) {
+  for (let i = 0; i < clusterCount; i++) {
+    const size = baseSize + (i < remainder ? 1 : 0);
     if (size > 0) {
-      clusters.push(shuffled.slice(idx, idx + size));
+      clusters.push(sorted.slice(idx, idx + size));
       idx += size;
     }
   }
-
   return clusters;
 }
 
-// pick aspect ratio with weighted random
-function pickAspectRatio() {
-  const r = Math.random();
-  if (r < 0.53) return { cols: 2, rows: 1 }; // 1:2
-  if (r < 0.63) return { cols: 1, rows: 1 }; // 1:1 square
-  if (r < 0.73) return { cols: 3, rows: 2 }; // 1:3
-  if (r < 0.83) return { cols: 4, rows: 3 }; // 1:4
-  if (r < 0.9) return { cols: 5, rows: 6 }; // 1:5
-  if (r < 0.95) return { cols: 4, rows: 1 }; // 1:10
-  return { cols: 20, rows: 1 }; // 1:20
+// 计算从起始点到某个日期经过了多少个周期
+function getDatePeriodIndex(date) {
+  const d = new Date(date);
+  const year = d.getFullYear();
+  const month = d.getMonth() + 1; // 1-12
+
+  // 从起始点开始计算经过的月数
+  const startMonths = START_YEAR * 12 + START_MONTH;
+  const currentMonths = year * 12 + month;
+  const monthsDiff = currentMonths - startMonths;
+
+  return Math.floor(monthsDiff / MONTHS_PER_CUBE);
 }
 
-// arrange cluster into grid with given aspect preference
-function arrangeCluster(comments) {
-  const n = comments.length;
-  const ratio = pickAspectRatio();
+// 计算总共有多少个周期
+function getTotalPeriods() {
+  const startMonths = START_YEAR * 12 + START_MONTH;
+  const endMonths = END_YEAR * 12 + END_MONTH;
+  return Math.ceil((endMonths - startMonths) / MONTHS_PER_CUBE);
+}
 
-  // figure out grid size based on ratio preference
-  let cols, rows;
-  if (ratio.cols >= ratio.rows) {
-    cols = Math.ceil(Math.sqrt((n * ratio.cols) / ratio.rows));
-    rows = Math.ceil(n / cols);
-  } else {
-    rows = Math.ceil(Math.sqrt((n * ratio.rows) / ratio.cols));
-    cols = Math.ceil(n / rows);
+// 获取簇的平均时间对应的周期索引
+function getClusterPeriodIndex(cluster) {
+  const validTimes = cluster.filter((c) => c.time).map((c) => new Date(c.time).getTime());
+  if (validTimes.length === 0) {
+    // 没有时间的放到最新的周期
+    return getTotalPeriods() - 1;
+  }
+  const avgTime = validTimes.reduce((a, b) => a + b, 0) / validTimes.length;
+  return getDatePeriodIndex(new Date(avgTime));
+}
+
+// 根据周期索引获取 cube 大小
+function getCubeSize(periodIndex) {
+  const total = getTotalPeriods();
+  const clampedIndex = Math.max(0, Math.min(total - 1, periodIndex));
+  const ratio = total > 1 ? clampedIndex / (total - 1) : 0;
+  return INNER_CUBE_SIZE + ratio * (OUTER_CUBE_SIZE - INNER_CUBE_SIZE);
+}
+
+// 根据周期索引获取 cube 的累积旋转角度
+function getCubeRotation(periodIndex) {
+  return periodIndex * CUBE_TWIST;
+}
+
+// 在 cube 的某个面上靠近边缘放置
+function getPositionOnCubeFace(cubeSize, faceIndex) {
+  const half = cubeSize / 2;
+
+  // 在面上的位置，靠近边缘
+  const edgeBias = 0.7 + Math.random() * 0.25; // 0.7-0.95，靠近边缘
+  const u = (Math.random() > 0.5 ? 1 : -1) * edgeBias * half;
+  const v = (Math.random() - 0.5) * 2 * half * 0.9;
+
+  // 随机选择四个朝向之一 (0°, 90°, 180°, 270°)
+  const rotationOptions = [0, Math.PI / 2, Math.PI, Math.PI * 1.5];
+  const extraRotation = rotationOptions[Math.floor(Math.random() * 4)];
+
+  let pos, lookDir;
+
+  switch (faceIndex) {
+    case 0: // +X face
+      pos = new THREE.Vector3(half, v, u);
+      lookDir = new THREE.Vector3(1, 0, 0);
+      break;
+    case 1: // -X face
+      pos = new THREE.Vector3(-half, v, u);
+      lookDir = new THREE.Vector3(-1, 0, 0);
+      break;
+    case 2: // +Y face
+      pos = new THREE.Vector3(u, half, v);
+      lookDir = new THREE.Vector3(0, 1, 0);
+      break;
+    case 3: // -Y face
+      pos = new THREE.Vector3(u, -half, v);
+      lookDir = new THREE.Vector3(0, -1, 0);
+      break;
+    case 4: // +Z face
+      pos = new THREE.Vector3(u, v, half);
+      lookDir = new THREE.Vector3(0, 0, 1);
+      break;
+    case 5: // -Z face
+    default:
+      pos = new THREE.Vector3(u, v, -half);
+      lookDir = new THREE.Vector3(0, 0, -1);
+      break;
   }
 
-  // clamp to reasonable values
-  cols = Math.max(1, Math.min(cols, n));
-  rows = Math.ceil(n / cols);
+  return { pos, lookDir, extraRotation };
+}
+
+// 排列簇内的 comment
+function arrangeCluster(comments) {
+  const n = comments.length;
+  const cols = Math.ceil(Math.sqrt(n * 2));
+  const rows = Math.ceil(n / cols);
 
   const arranged = [];
   let idx = 0;
@@ -79,11 +155,10 @@ function arrangeCluster(comments) {
       idx++;
     }
   }
-
   return { arranged, cols, rows };
 }
 
-// create text texture - only comment text, bold
+// 创建文字贴图 - 只显示前 5 个词
 function createTextTexture(comment, scale = 1) {
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
@@ -93,24 +168,23 @@ function createTextTexture(comment, scale = 1) {
   canvas.width = w;
   canvas.height = h;
 
-  // white bg
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, w, h);
 
-  // black bold text
   ctx.fillStyle = "#000000";
-  const fontSize = Math.floor(64 * scale);
+  const fontSize = Math.floor(TEXT_FONT_SIZE * scale);
   ctx.font = `bold ${fontSize}px monospace`;
 
-  // wrap text
   const text = comment.text || "";
-  const words = text.split(" ");
+  const words = text.split(" ").slice(0, 5);
+  const preview = words.join(" ") + (text.split(" ").length > 5 ? "..." : "");
+
   let line = "";
   let y = fontSize + 5;
   const maxWidth = w - 20;
   const lineHeight = fontSize + 4;
 
-  for (const word of words) {
+  for (const word of preview.split(" ")) {
     const test = line + word + " ";
     if (ctx.measureText(test).width > maxWidth) {
       ctx.fillText(line, 10, y);
@@ -133,6 +207,7 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
   const sceneRef = useRef(null);
   const meshesRef = useRef(new Map());
   const allMeshesRef = useRef([]);
+  const cubeGroupsRef = useRef(new Map()); // year -> Group
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -145,7 +220,7 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
     const h = containerRef.current.clientHeight;
 
     const camera = new THREE.PerspectiveCamera(60, w / h, 0.1, 2000);
-    camera.position.set(0, 0, 300);
+    camera.position.set(0, 0, 400);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(w, h);
@@ -163,34 +238,27 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
       mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
-      // check hover
       raycaster.setFromCamera(mouse, camera);
       const intersects = raycaster.intersectObjects(allMeshesRef.current);
 
       if (intersects.length > 0) {
         const mesh = intersects[0].object;
         if (mesh !== hoveredMesh) {
-          // unhighlight old
           if (hoveredMesh && hoveredMesh.material) {
-            hoveredMesh.material.emissive?.setHex(0x000000);
+            hoveredMesh.material.opacity = 0.9;
           }
           hoveredMesh = mesh;
-          // highlight new
           if (mesh.material) {
-            if (!mesh.material.emissive) {
-              mesh.material = new THREE.MeshBasicMaterial({
-                map: mesh.material.map,
-                side: THREE.DoubleSide,
-              });
-            }
+            mesh.material.opacity = 1.0;
           }
           onHoverComment(mesh.userData.comment, mesh.userData.slangTerm);
         }
       } else {
-        if (hoveredMesh) {
-          hoveredMesh = null;
-          onHoverComment(null, null);
+        if (hoveredMesh && hoveredMesh.material) {
+          hoveredMesh.material.opacity = 0.9;
         }
+        hoveredMesh = null;
+        onHoverComment(null, null);
       }
     };
 
@@ -208,17 +276,8 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
     renderer.domElement.addEventListener("mousemove", onMouseMove);
     renderer.domElement.addEventListener("click", onClick);
 
-    let time = 0;
     const animate = () => {
       requestAnimationFrame(animate);
-      time += 0.0003;
-
-      scene.children.forEach((group) => {
-        if (group.userData.isCluster) {
-          group.rotation.y = time * group.userData.speed;
-        }
-      });
-
       controls.update();
       renderer.render(scene, camera);
     };
@@ -245,6 +304,25 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
     };
   }, [onHoverComment, onClickComment]);
 
+  // 创建或获取某个周期的 cube group
+  const getOrCreateCubeGroup = (scene, periodIndex) => {
+    if (cubeGroupsRef.current.has(periodIndex)) {
+      return cubeGroupsRef.current.get(periodIndex);
+    }
+
+    const group = new THREE.Group();
+    const rotation = getCubeRotation(periodIndex);
+
+    // 每层 cube 累积扭转
+    group.rotation.x = rotation * 0.7;
+    group.rotation.y = rotation;
+    group.rotation.z = rotation * 0.4;
+
+    scene.add(group);
+    cubeGroupsRef.current.set(periodIndex, group);
+    return group;
+  };
+
   // add meshes when slangs change
   useEffect(() => {
     if (!sceneRef.current) return;
@@ -253,7 +331,6 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
     slangs.forEach((slang) => {
       if (meshesRef.current.has(slang.term)) return;
 
-      // collect all comments
       const allComments = [];
       (slang.periods || []).forEach((p) => {
         (p.comments || []).forEach((c) => allComments.push(c));
@@ -261,38 +338,34 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
 
       if (allComments.length === 0) return;
 
-      const clusters = splitIntoFiveClusters(allComments);
+      const clusters = splitIntoClustersByTime(allComments);
 
-      clusters.forEach((cluster, clusterIdx) => {
+      clusters.forEach((cluster) => {
         const { arranged, cols, rows } = arrangeCluster(cluster);
+        const periodIndex = getClusterPeriodIndex(cluster);
+        const cubeSize = getCubeSize(periodIndex);
+        const cubeGroup = getOrCreateCubeGroup(scene, periodIndex);
 
-        const group = new THREE.Group();
-        group.userData.isCluster = true;
-        group.userData.slangTerm = slang.term;
-        group.userData.speed = 0.1 + Math.random() * 0.2;
+        const clusterGroup = new THREE.Group();
+        clusterGroup.userData.isCluster = true;
+        clusterGroup.userData.slangTerm = slang.term;
 
-        // smaller cluster = bigger rectangles
+        // 随机选一个面
+        const faceIndex = Math.floor(Math.random() * 6);
+        const { pos, lookDir, extraRotation } = getPositionOnCubeFace(cubeSize, faceIndex);
+
+        clusterGroup.position.copy(pos);
+
+        // 让簇面向外（从 cube 中心向外看）
+        clusterGroup.lookAt(pos.clone().add(lookDir.multiplyScalar(100)));
+
+        // 在面上随机旋转 (0°, 90°, 180°, 270°)
+        clusterGroup.rotateZ(extraRotation);
+
         const sizeScale = Math.max(0.8, Math.min(2, 15 / cluster.length));
-        const planeW = 18 * sizeScale;
-        const planeH = 9 * sizeScale;
-        const gap = 0.3 * sizeScale;
-
-        // position - spread out based on cluster index
-        const dist = 80 + clusterIdx * 40 + Math.random() * 30;
-        const theta = Math.random() * Math.PI * 2;
-        const phi = (Math.random() - 0.5) * Math.PI * 0.8;
-
-        group.position.set(
-          dist * Math.cos(phi) * Math.cos(theta),
-          dist * Math.sin(phi),
-          dist * Math.cos(phi) * Math.sin(theta)
-        );
-
-        group.rotation.set(
-          Math.random() * Math.PI,
-          Math.random() * Math.PI,
-          Math.random() * Math.PI
-        );
+        const planeW = TILE_BASE_WIDTH * sizeScale;
+        const planeH = TILE_BASE_HEIGHT * sizeScale;
+        const gap = TILE_GAP * sizeScale;
 
         arranged.forEach((comment) => {
           const texture = createTextTexture(comment, sizeScale);
@@ -314,11 +387,11 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
           mesh.userData.comment = comment;
           mesh.userData.slangTerm = slang.term;
 
-          group.add(mesh);
+          clusterGroup.add(mesh);
           allMeshesRef.current.push(mesh);
         });
 
-        scene.add(group);
+        cubeGroup.add(clusterGroup);
       });
 
       meshesRef.current.set(slang.term, true);
@@ -332,7 +405,9 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
     allMeshesRef.current.forEach((mesh) => {
       if (mesh.material) {
         const isHighlight = mesh.userData.slangTerm === highlightSlang;
-        mesh.material.opacity = isHighlight ? 1 : 0.5;
+        mesh.material.color = isHighlight
+          ? new THREE.Color(1.3, 1.3, 1.3)
+          : new THREE.Color(1, 1, 1);
       }
     });
   }, [highlightSlang]);
