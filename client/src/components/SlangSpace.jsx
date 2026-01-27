@@ -20,6 +20,16 @@ const END_MONTH = 12; // 结束月份
 const INNER_CUBE_SIZE = 40; // 最内层 cube 的大小
 const OUTER_CUBE_SIZE = 320; // 最外层 cube 的大小
 const CUBE_TWIST = 0.7; // 每层 cube 之间的扭转角度 (弧度)
+
+// 背景假片相关
+const BG_TILE_COUNT = 500; // 背景假片数量
+const BG_MIN_DIST = 350; // 假片最近距离
+const BG_MAX_DIST = 600; // 假片最远距离
+const BG_OPACITY = 0.3; // 假片透明度
+
+// 缩放限制
+const ZOOM_MIN = 80; // 最近
+const ZOOM_MAX = 500; // 最远
 /////////////////////////////////
 
 // 按时间分簇
@@ -163,8 +173,8 @@ function createTextTexture(comment, scale = 1) {
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
 
-  const w = Math.floor(512 * scale);
-  const h = Math.floor(256 * scale);
+  const w = Math.floor(256 * scale);
+  const h = Math.floor(128 * scale);
   canvas.width = w;
   canvas.height = h;
 
@@ -202,6 +212,49 @@ function createTextTexture(comment, scale = 1) {
   return texture;
 }
 
+// 创建背景假片（纯视觉，不可交互）
+function createBackgroundTiles(scene) {
+  const geo = new THREE.PlaneGeometry(
+    TILE_BASE_WIDTH * 1.5,
+    TILE_BASE_HEIGHT * 1.5
+  );
+
+  // 灰色半透明材质
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0x888888,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: BG_OPACITY,
+  });
+
+  for (let i = 0; i < BG_TILE_COUNT; i++) {
+    const mesh = new THREE.Mesh(geo, mat);
+
+    // 随机球面分布
+    const dist = BG_MIN_DIST + Math.random() * (BG_MAX_DIST - BG_MIN_DIST);
+    const theta = Math.random() * Math.PI * 2;
+    const phi = (Math.random() - 0.5) * Math.PI;
+
+    mesh.position.set(
+      dist * Math.cos(phi) * Math.cos(theta),
+      dist * Math.sin(phi),
+      dist * Math.cos(phi) * Math.sin(theta)
+    );
+
+    // 随机朝向
+    mesh.rotation.set(
+      Math.random() * Math.PI,
+      Math.random() * Math.PI,
+      Math.random() * Math.PI
+    );
+
+    // 标记为背景，不加入交互列表
+    mesh.userData.isBackground = true;
+
+    scene.add(mesh);
+  }
+}
+
 export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onClickComment }) {
   const containerRef = useRef(null);
   const sceneRef = useRef(null);
@@ -228,6 +281,11 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
+    controls.minDistance = ZOOM_MIN;
+    controls.maxDistance = ZOOM_MAX;
+
+    // 创建背景假片
+    createBackgroundTiles(scene);
 
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
