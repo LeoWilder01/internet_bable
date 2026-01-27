@@ -43,10 +43,11 @@ const CLUSTER_SIZE_MAX = 2.0; // 随机尺寸上限
 const LAYER_SIZE_FACTOR = 0.1; // 层级尺寸因子：最内层乘(1-此值)，最外层乘(1+此值)，中间层不变
 
 // Cube 边框相关
-const CUBE_EDGE_OPACITY = 0.6; // cube 边框透明度 (0 = 隐形, 1 = 完全可见)
-const CUBE_EDGE_COLOR = 0x444444; // 边框颜色
-const CUBE_EDGE_DASH_SIZE = 1; // 虚线段长度
+const CUBE_EDGE_OPACITY = 0.83; // cube 边框透明度 (0 = 隐形, 1 = 完全可见)
+const CUBE_EDGE_COLOR = 0x989898; // 边框颜色
+const CUBE_EDGE_DASH_SIZE = 0.5; // 虚线段长度
 const CUBE_EDGE_GAP_SIZE = 2; // 虚线间隔长度
+const CUBE_EDGE_SKIP_INNER = 2; // 最内层几个 cube 不显示边框
 /////////////////////////////////
 
 // 按时间分簇
@@ -59,7 +60,7 @@ function splitIntoClustersByTime(comments) {
     return ta - tb;
   });
 
-  // 分成 5 个簇
+  // 分成 10 个簇
   const total = sorted.length;
   const clusterCount = Math.min(10, total);
   const baseSize = Math.floor(total / clusterCount);
@@ -479,11 +480,13 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
     group.rotation.y = rotation;
     group.rotation.z = rotation * 0.4;
 
-    // 添加虚线边框
-    const cubeSize = getCubeSize(periodIndex);
-    const edges = createCubeEdges(cubeSize);
-    if (edges) {
-      group.add(edges);
+    // 添加虚线边框（跳过最内层的几个）
+    if (periodIndex >= CUBE_EDGE_SKIP_INNER) {
+      const cubeSize = getCubeSize(periodIndex);
+      const edges = createCubeEdges(cubeSize);
+      if (edges) {
+        group.add(edges);
+      }
     }
 
     scene.add(group);
