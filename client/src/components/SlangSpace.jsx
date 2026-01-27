@@ -17,13 +17,13 @@ const END_YEAR = 2025;
 const END_MONTH = 12; // 结束月份
 
 // cube 尺寸相关
-const INNER_CUBE_SIZE = 40; // 最内层 cube 的大小
-const OUTER_CUBE_SIZE = 320; // 最外层 cube 的大小
+const INNER_CUBE_SIZE = 60; // 最内层 cube 的大小
+const OUTER_CUBE_SIZE = 360; // 最外层 cube 的大小
 const CUBE_TWIST = 0.7; // 每层 cube 之间的扭转角度 (弧度)
 
 // 背景假片相关
 const BG_TILE_COUNT = 900; // 背景假片数量
-const BG_MIN_DIST = 350; // 假片最近距离
+const BG_MIN_DIST = 390; // 假片最近距离
 const BG_MAX_DIST = 500; // 假片最远距离
 const BG_OPACITY = 0.3; // 假片透明度
 
@@ -31,11 +31,10 @@ const BG_OPACITY = 0.3; // 假片透明度
 const ZOOM_MIN = 80; // 最近
 const ZOOM_MAX = 400; // 最远
 
-// 高亮相关
-const NORMAL_OPACITY = 0.5; // 非高亮时的透明度
-const DIRECT_HIGHLIGHT_OPACITY = 1.0; // 直接悬停的片
-const SLANG_HIGHLIGHT_OPACITY = 0.9; // 同 slang 其他片
-const VISITED_OPACITY = 1.0; // 被直接悬停过后离开的片
+// 高亮颜色相关
+const NORMAL_COLOR = 0x999999; // 初始灰色
+const HIGHLIGHT_COLOR = 0xffffff; // 直接悬停/被访问过的片：白色
+const SLANG_HIGHLIGHT_COLOR = 0x6699cc; // 同 slang 其他片：浅蓝
 
 // 簇尺寸相关
 const CLUSTER_SIZE_MIN = 0.8; // 随机尺寸下限
@@ -328,11 +327,13 @@ function createCubeLabel(periodIndex, cubeSize) {
   return mesh;
 }
 
-export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onClickComment }) {
+export default function SlangSpace({ slangs, tempSlang, highlightSlang, onHoverComment, onClickComment }) {
   const containerRef = useRef(null);
   const sceneRef = useRef(null);
   const meshesRef = useRef(new Map());
   const allMeshesRef = useRef([]);
+  const tempMeshesRef = useRef([]); // 临时搜索结果的 meshes
+  const tempGroupsRef = useRef([]); // 临时搜索结果的 groups
   const cubeGroupsRef = useRef(new Map()); // year -> Group
 
   useEffect(() => {
@@ -379,18 +380,18 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
 
         // 切换直接悬停的片
         if (mesh !== directHoveredMesh) {
-          // 之前直接悬停的片降为 slang 高亮
+          // 之前直接悬停的片降为 slang 高亮色
           if (
             directHoveredMesh &&
             directHoveredMesh.material &&
             directHoveredMesh.userData.slangTerm === slangTerm
           ) {
-            directHoveredMesh.material.opacity = SLANG_HIGHLIGHT_OPACITY;
+            directHoveredMesh.material.color.setHex(SLANG_HIGHLIGHT_COLOR);
           }
 
           directHoveredMesh = mesh;
           mesh.userData.visited = true;
-          mesh.material.opacity = DIRECT_HIGHLIGHT_OPACITY;
+          mesh.material.color.setHex(HIGHLIGHT_COLOR);
 
           onHoverComment(mesh.userData.comment, slangTerm);
         }
@@ -400,7 +401,8 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
           if (hoveredSlang) {
             allMeshesRef.current.forEach((m) => {
               if (m.userData.slangTerm === hoveredSlang && m.material) {
-                m.material.opacity = m.userData.visited ? VISITED_OPACITY : NORMAL_OPACITY;
+                // 被直接悬停过的保持白色，否则恢复灰色
+                m.material.color.setHex(m.userData.visited ? HIGHLIGHT_COLOR : NORMAL_COLOR);
               }
             });
           }
@@ -409,8 +411,8 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
           hoveredSlang = slangTerm;
           allMeshesRef.current.forEach((m) => {
             if (m.userData.slangTerm === slangTerm && m.material) {
-              // 直接悬停的片 1.0，其他同 slang 的 0.7
-              m.material.opacity = m === mesh ? DIRECT_HIGHLIGHT_OPACITY : SLANG_HIGHLIGHT_OPACITY;
+              // 直接悬停的片白色，其他同 slang 的浅蓝
+              m.material.color.setHex(m === mesh ? HIGHLIGHT_COLOR : SLANG_HIGHLIGHT_COLOR);
             }
           });
         }
@@ -419,8 +421,8 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
         if (hoveredSlang) {
           allMeshesRef.current.forEach((m) => {
             if (m.userData.slangTerm === hoveredSlang && m.material) {
-              // 被直接悬停过的用 VISITED，否则用 NORMAL
-              m.material.opacity = m.userData.visited ? VISITED_OPACITY : NORMAL_OPACITY;
+              // 被直接悬停过的保持白色，否则恢复灰色
+              m.material.color.setHex(m.userData.visited ? HIGHLIGHT_COLOR : NORMAL_COLOR);
             }
           });
           hoveredSlang = null;
@@ -625,8 +627,7 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
           const mat = new THREE.MeshBasicMaterial({
             map: texture,
             side: THREE.DoubleSide,
-            transparent: true,
-            opacity: NORMAL_OPACITY,
+            color: NORMAL_COLOR,
           });
           const geo = new THREE.PlaneGeometry(planeW, planeH);
           const mesh = new THREE.Mesh(geo, mat);
@@ -651,19 +652,118 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
     });
   }, [slangs]);
 
-  // update highlight for slang
+  // handle tempSlang (temporary search result)
   useEffect(() => {
     if (!sceneRef.current) return;
+    const scene = sceneRef.current;
+
+    // 清除旧的临时 meshes
+    tempMeshesRef.current.forEach((mesh) => {
+      // 从 allMeshesRef 中移除
+      const idx = allMeshesRef.current.indexOf(mesh);
+      if (idx > -1) allMeshesRef.current.splice(idx, 1);
+    });
+    tempMeshesRef.current = [];
+
+    // 清除旧的临时 groups
+    tempGroupsRef.current.forEach((group) => {
+      if (group.parent) group.parent.remove(group);
+    });
+    tempGroupsRef.current = [];
+
+    // 如果没有 tempSlang，结束
+    if (!tempSlang) return;
+
+    // 如果这个 slang 已经在正式列表中，不需要创建临时 meshes
+    if (meshesRef.current.has(tempSlang.term)) return;
+
+    const allComments = [];
+    (tempSlang.periods || []).forEach((p) => {
+      (p.comments || []).forEach((c) => allComments.push(c));
+    });
+
+    if (allComments.length === 0) return;
+
+    const clusters = splitIntoClustersByTime(allComments);
+
+    clusters.forEach((cluster) => {
+      const { arranged, cols, rows } = arrangeCluster(cluster);
+      const periodIndex = getClusterPeriodIndex(cluster);
+      const cubeSize = getCubeSize(periodIndex);
+      const cubeGroup = getOrCreateCubeGroup(scene, periodIndex);
+
+      const clusterGroup = new THREE.Group();
+      clusterGroup.userData.isCluster = true;
+      clusterGroup.userData.slangTerm = tempSlang.term;
+      clusterGroup.userData.isTemp = true;
+
+      const faceIndex = Math.floor(Math.random() * 6);
+      const { pos, lookDir, extraRotation } = getPositionOnCubeFace(cubeSize, faceIndex);
+
+      clusterGroup.position.copy(pos);
+      clusterGroup.lookAt(pos.clone().add(lookDir.multiplyScalar(100)));
+      clusterGroup.rotateZ(extraRotation);
+
+      const randomBaseScale =
+        CLUSTER_SIZE_MIN + Math.random() * (CLUSTER_SIZE_MAX - CLUSTER_SIZE_MIN);
+      const countAdjust = Math.max(0.7, Math.min(1.3, 10 / cluster.length));
+      const totalPeriods = getTotalPeriods();
+      const normalizedLayer = totalPeriods > 1 ? periodIndex / (totalPeriods - 1) : 0.5;
+      const layerMultiplier = 1 + LAYER_SIZE_FACTOR * (normalizedLayer - 0.5) * 2;
+      const sizeScale = randomBaseScale * countAdjust * layerMultiplier;
+
+      const planeW = TILE_BASE_WIDTH * sizeScale;
+      const planeH = TILE_BASE_HEIGHT * sizeScale;
+      const gap = TILE_GAP * sizeScale;
+
+      arranged.forEach((comment) => {
+        const texture = createTextTexture(comment, sizeScale);
+        const mat = new THREE.MeshBasicMaterial({
+          map: texture,
+          side: THREE.DoubleSide,
+          color: SLANG_HIGHLIGHT_COLOR, // 临时片默认高亮显示
+        });
+        const geo = new THREE.PlaneGeometry(planeW, planeH);
+        const mesh = new THREE.Mesh(geo, mat);
+
+        mesh.position.set(
+          (comment.gridX - cols / 2) * (planeW + gap),
+          (comment.gridY - rows / 2) * (planeH + gap),
+          0
+        );
+
+        mesh.userData.comment = comment;
+        mesh.userData.slangTerm = tempSlang.term;
+        mesh.userData.isTemp = true;
+
+        clusterGroup.add(mesh);
+        allMeshesRef.current.push(mesh);
+        tempMeshesRef.current.push(mesh);
+      });
+
+      cubeGroup.add(clusterGroup);
+      tempGroupsRef.current.push(clusterGroup);
+    });
+  }, [tempSlang]);
+
+  // update highlight for slang (from search/click in sidebar)
+  useEffect(() => {
+    if (!sceneRef.current || !highlightSlang) return;
+    if (allMeshesRef.current.length === 0) return;
 
     allMeshesRef.current.forEach((mesh) => {
       if (mesh.material) {
-        const isHighlight = mesh.userData.slangTerm === highlightSlang;
-        mesh.material.color = isHighlight
-          ? new THREE.Color(1.3, 1.3, 1.3)
-          : new THREE.Color(1, 1, 1);
+        if (mesh.userData.slangTerm === highlightSlang) {
+          // 匹配的 slang：高亮为浅蓝
+          mesh.material.color.setHex(SLANG_HIGHLIGHT_COLOR);
+        } else if (!mesh.userData.visited) {
+          // 非匹配且未访问过：恢复灰色
+          mesh.material.color.setHex(NORMAL_COLOR);
+        }
+        // 已访问过的片保持当前颜色（白色）
       }
     });
-  }, [highlightSlang]);
+  }, [highlightSlang, slangs]); // 也依赖 slangs，确保 meshes 创建后能触发高亮
 
   return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 }

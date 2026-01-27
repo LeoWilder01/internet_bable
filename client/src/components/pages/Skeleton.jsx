@@ -9,6 +9,7 @@ const Skeleton = () => {
   const { userId, handleLogin, handleLogout } = useContext(UserContext);
 
   const [slangs, setSlangs] = useState([]);
+  const [tempSlang, setTempSlang] = useState(null); // 临时搜索结果（未保存）
   const [currentSlang, setCurrentSlang] = useState(null);
   const [highlightSlang, setHighlightSlang] = useState(null);
   const [hoveredComment, setHoveredComment] = useState(null);
@@ -16,6 +17,17 @@ const Skeleton = () => {
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
   const [modal, setModal] = useState(null);
+  const slangsRef = React.useRef(slangs); // 用 ref 避免回调依赖
+  const tempSlangRef = React.useRef(tempSlang);
+
+  // 保持 refs 同步
+  useEffect(() => {
+    slangsRef.current = slangs;
+  }, [slangs]);
+
+  useEffect(() => {
+    tempSlangRef.current = tempSlang;
+  }, [tempSlang]);
 
   // load all slangs from db
   useEffect(() => {
@@ -31,6 +43,7 @@ const Skeleton = () => {
     setLoading(true);
     setStatus("connecting...");
     setCurrentSlang(null);
+    setTempSlang(null); // 清除之前的临时结果
 
     const evtSource = new EventSource(`/api/slang/${encodeURIComponent(term)}/stream`);
 
@@ -53,10 +66,8 @@ const Skeleton = () => {
       const data = JSON.parse(e.data);
       setCurrentSlang(data);
       setHighlightSlang(data.term);
-      setSlangs((prev) => {
-        if (prev.find((s) => s.term === data.term)) return prev;
-        return [...prev, data];
-      });
+      // 新搜索结果先放入临时状态，不直接加入 slangs
+      setTempSlang(data);
       setStatus("done");
     });
 
@@ -87,7 +98,14 @@ const Skeleton = () => {
         currentMeaning: currentSlang.currentMeaning,
         periods: currentSlang.periods,
       });
-      setCurrentSlang({ ...currentSlang, fromDb: true });
+      const savedSlang = { ...currentSlang, fromDb: true };
+      setCurrentSlang(savedSlang);
+      // 保存后：从临时状态移到正式列表
+      setSlangs((prev) => {
+        if (prev.find((s) => s.term === savedSlang.term)) return prev;
+        return [...prev, savedSlang];
+      });
+      setTempSlang(null);
       setStatus("saved");
     } catch (err) {
       setStatus("save failed");
@@ -101,9 +119,23 @@ const Skeleton = () => {
   const onClickComment = useCallback((comment, slangTerm) => {
     setModal({ comment, slangTerm });
     setHighlightSlang(slangTerm);
-    const found = slangs.find((s) => s.term === slangTerm);
-    if (found) setCurrentSlang(found);
-  }, [slangs]);
+
+    // 检查是否点击的是临时片
+    const currentTemp = tempSlangRef.current;
+    if (currentTemp && currentTemp.term === slangTerm) {
+      // 点击临时片，不清除临时数据，设置 currentSlang 为临时数据
+      setCurrentSlang(currentTemp);
+      return;
+    }
+
+    // 点击已保存的片
+    const found = slangsRef.current.find((s) => s.term === slangTerm);
+    if (found) {
+      setCurrentSlang(found);
+      // 点击已保存的片时，清除临时搜索结果
+      setTempSlang(null);
+    }
+  }, []);
 
   return (
     <div className="app-container">
@@ -111,6 +143,7 @@ const Skeleton = () => {
       <div className="left-panel">
         <SlangSpace
           slangs={slangs}
+          tempSlang={tempSlang}
           highlightSlang={highlightSlang}
           onHoverComment={onHoverComment}
           onClickComment={onClickComment}
