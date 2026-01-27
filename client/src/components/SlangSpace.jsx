@@ -34,8 +34,8 @@ const ZOOM_MAX = 400; // 最远
 // 高亮相关
 const NORMAL_OPACITY = 0.5; // 非高亮时的透明度
 const DIRECT_HIGHLIGHT_OPACITY = 1.0; // 直接悬停的片
-const SLANG_HIGHLIGHT_OPACITY = 0.7; // 同 slang 其他片
-const VISITED_OPACITY = 0.7; // 被直接悬停过后离开的片
+const SLANG_HIGHLIGHT_OPACITY = 0.9; // 同 slang 其他片
+const VISITED_OPACITY = 1.0; // 被直接悬停过后离开的片
 
 // 簇尺寸相关
 const CLUSTER_SIZE_MIN = 0.8; // 随机尺寸下限
@@ -48,6 +48,10 @@ const CUBE_EDGE_COLOR = 0x989898; // 边框颜色
 const CUBE_EDGE_DASH_SIZE = 0.5; // 虚线段长度
 const CUBE_EDGE_GAP_SIZE = 2; // 虚线间隔长度
 const CUBE_EDGE_SKIP_INNER = 2; // 最内层几个 cube 不显示边框
+
+// Cube 时间标签相关
+const CUBE_LABEL_OPACITY = 1; // 标签透明度 (0 = 隐形)
+const CUBE_LABEL_SIZE = 8; // 标签尺寸
 /////////////////////////////////
 
 // 按时间分簇
@@ -97,6 +101,17 @@ function getTotalPeriods() {
   const startMonths = START_YEAR * 12 + START_MONTH;
   const endMonths = END_YEAR * 12 + END_MONTH;
   return Math.ceil((endMonths - startMonths) / MONTHS_PER_CUBE);
+}
+
+// 获取周期的时间范围标签（只显示起始年月）
+function getPeriodLabel(periodIndex) {
+  const startMonths = START_YEAR * 12 + START_MONTH;
+  const periodStartMonths = startMonths + periodIndex * MONTHS_PER_CUBE;
+
+  const startYear = Math.floor((periodStartMonths - 1) / 12);
+  const startMonth = ((periodStartMonths - 1) % 12) + 1;
+
+  return `${startYear}.${startMonth}`;
 }
 
 // 获取簇的平均时间对应的周期索引
@@ -264,6 +279,53 @@ function createBackgroundTiles(scene) {
 
     scene.add(mesh);
   }
+}
+
+// 创建 cube 时间标签（贴在顶面后边）
+function createCubeLabel(periodIndex, cubeSize) {
+  if (CUBE_LABEL_OPACITY <= 0) return null;
+
+  const label = getPeriodLabel(periodIndex);
+
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  canvas.width = 1024;
+  canvas.height = 128;
+
+  // 不填充背景，保持透明
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "64px 'Consolas', 'Monaco', monospace";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(label, 20, canvas.height / 2);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  const material = new THREE.MeshBasicMaterial({
+    map: texture,
+    transparent: true,
+    opacity: CUBE_LABEL_OPACITY,
+    side: THREE.DoubleSide,
+    alphaTest: 0.1, // 丢弃透明像素，去掉"底"
+  });
+
+  // 平面贴在顶面后边
+  const aspect = canvas.width / canvas.height;
+  const labelHeight = CUBE_LABEL_SIZE;
+  const labelWidth = labelHeight * aspect;
+  const geo = new THREE.PlaneGeometry(labelWidth, labelHeight);
+  const mesh = new THREE.Mesh(geo, material);
+
+  const half = cubeSize / 2;
+  // 位置：顶面后边的最左端
+  mesh.position.set(-half + labelWidth / 2, half + 0.1, -half + labelHeight / 2);
+  // 旋转：平躺在顶面（绕X轴-90度），文字沿X轴方向
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.rotation.y = 0;
+  mesh.rotation.z = 0;
+
+  return mesh;
 }
 
 export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onClickComment }) {
@@ -480,13 +542,20 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
     group.rotation.y = rotation;
     group.rotation.z = rotation * 0.4;
 
+    const cubeSize = getCubeSize(periodIndex);
+
     // 添加虚线边框（跳过最内层的几个）
     if (periodIndex >= CUBE_EDGE_SKIP_INNER) {
-      const cubeSize = getCubeSize(periodIndex);
       const edges = createCubeEdges(cubeSize);
       if (edges) {
         group.add(edges);
       }
+    }
+
+    // 添加时间标签
+    const label = createCubeLabel(periodIndex, cubeSize);
+    if (label) {
+      group.add(label);
     }
 
     scene.add(group);
