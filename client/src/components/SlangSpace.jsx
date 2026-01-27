@@ -34,7 +34,7 @@ const ZOOM_MAX = 400; // 最远
 // 高亮颜色相关
 const NORMAL_COLOR = 0x999999; // 初始灰色
 const HIGHLIGHT_COLOR = 0xffffff; // 直接悬停/被访问过的片：白色
-const SLANG_HIGHLIGHT_COLOR = 0x6699cc; // 同 slang 其他片：浅蓝
+const SLANG_HIGHLIGHT_COLOR = 0x850000; // 同 slang 其他片：浅蓝
 
 // 簇尺寸相关
 const CLUSTER_SIZE_MIN = 0.8; // 随机尺寸下限
@@ -54,7 +54,7 @@ const CUBE_LABEL_SIZE = 8; // 标签尺寸
 /////////////////////////////////
 
 // 按时间分簇
-function splitIntoClustersByTime(comments) {
+function splitIntoClustersByTime(comments, maxClusters = 10) {
   if (!comments || comments.length === 0) return [];
 
   const sorted = [...comments].sort((a, b) => {
@@ -63,9 +63,8 @@ function splitIntoClustersByTime(comments) {
     return ta - tb;
   });
 
-  // 分成 10 个簇
   const total = sorted.length;
-  const clusterCount = Math.min(10, total);
+  const clusterCount = Math.min(maxClusters, total);
   const baseSize = Math.floor(total / clusterCount);
   const remainder = total % clusterCount;
 
@@ -137,14 +136,31 @@ function getCubeRotation(periodIndex) {
   return periodIndex * CUBE_TWIST;
 }
 
-// 在 cube 的某个面上靠近边缘放置
-function getPositionOnCubeFace(cubeSize, faceIndex) {
+// Slot 位置定义：4个角落 + 1个中心
+// 网格配置：4x4 = 16 个 slot
+const GRID_SIZE = 4;
+const TOTAL_SLOTS = GRID_SIZE * GRID_SIZE; // 16
+const SLOT_JITTER = 0.08; // 随机抖动范围（保持参差感）
+
+// 根据 slot 索引计算基础 uv 位置（-0.75 到 0.75 范围内均匀分布）
+function getSlotBasePosition(slotIndex) {
+  const row = Math.floor(slotIndex / GRID_SIZE);
+  const col = slotIndex % GRID_SIZE;
+  // 从 -0.7 到 0.7，均匀分布
+  const u = -0.7 + (col / (GRID_SIZE - 1)) * 1.4;
+  const v = -0.7 + (row / (GRID_SIZE - 1)) * 1.4;
+  return { u, v };
+}
+
+// 在 cube 的某个面上指定 slot 放置
+function getPositionOnCubeFace(cubeSize, faceIndex, slotIndex) {
   const half = cubeSize / 2;
 
-  // 在面上的位置，靠近边缘
-  const edgeBias = 0.7 + Math.random() * 0.25; // 0.7-0.95，靠近边缘
-  const u = (Math.random() > 0.5 ? 1 : -1) * edgeBias * half;
-  const v = (Math.random() - 0.5) * 2 * half * 0.9;
+  // 获取 slot 的基础 uv 位置
+  const basePos = getSlotBasePosition(slotIndex);
+  // 添加随机抖动
+  const u = (basePos.u + (Math.random() - 0.5) * SLOT_JITTER * 2) * half;
+  const v = (basePos.v + (Math.random() - 0.5) * SLOT_JITTER * 2) * half;
 
   // 随机选择四个朝向之一 (0°, 90°, 180°, 270°)
   const rotationOptions = [0, Math.PI / 2, Math.PI, Math.PI * 1.5];
@@ -200,7 +216,7 @@ function arrangeCluster(comments) {
   return { arranged, cols, rows };
 }
 
-// 创建文字贴图 - 只显示前 5 个词
+// 创建文字贴图 - 只显示前 3 个词
 function createTextTexture(comment, scale = 1) {
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
@@ -218,8 +234,8 @@ function createTextTexture(comment, scale = 1) {
   ctx.font = `bold ${fontSize}px monospace`;
 
   const text = comment.text || "";
-  const words = text.split(" ").slice(0, 5);
-  const preview = words.join(" ") + (text.split(" ").length > 5 ? "..." : "");
+  const words = text.split(" ").slice(0, 3);
+  const preview = words.join(" ") + (text.split(" ").length > 3 ? "..." : "");
 
   let line = "";
   let y = fontSize + 5;
@@ -327,14 +343,50 @@ function createCubeLabel(periodIndex, cubeSize) {
   return mesh;
 }
 
-export default function SlangSpace({ slangs, tempSlang, highlightSlang, onHoverComment, onClickComment }) {
+export default function SlangSpace({
+  slangs,
+  tempSlang,
+  highlightSlang,
+  onHoverComment,
+  onClickComment,
+}) {
   const containerRef = useRef(null);
   const sceneRef = useRef(null);
   const meshesRef = useRef(new Map());
   const allMeshesRef = useRef([]);
   const tempMeshesRef = useRef([]); // 临时搜索结果的 meshes
   const tempGroupsRef = useRef([]); // 临时搜索结果的 groups
-  const cubeGroupsRef = useRef(new Map()); // year -> Group
+  const cubeGroupsRef = useRef(new Map()); // periodIndex -> Group
+  const occupiedSlotsRef = useRef(new Map()); // "periodIndex-faceIndex-slotIndex" -> true
+
+  // 查找可用的 slot（4x4 网格，每面 16 个位置）
+  const findAvailableSlot = (periodIndex) => {
+    // 随机打乱面和 slot 的顺序，增加随机性
+    const faces = [0, 1, 2, 3, 4, 5].sort(() => Math.random() - 0.5);
+    const slots = Array.from({ length: TOTAL_SLOTS }, (_, i) => i).sort(() => Math.random() - 0.5);
+
+    // 尝试所有面的所有 slot
+    for (const faceIndex of faces) {
+      for (const slotIndex of slots) {
+        const key = `${periodIndex}-${faceIndex}-${slotIndex}`;
+        if (!occupiedSlotsRef.current.has(key)) {
+          occupiedSlotsRef.current.set(key, true);
+          return { faceIndex, slotIndex };
+        }
+      }
+    }
+
+    // 全满了（6面 × 16格 = 96个位置都满了），随机放置（允许重叠）
+    const faceIndex = Math.floor(Math.random() * 6);
+    const slotIndex = Math.floor(Math.random() * TOTAL_SLOTS);
+    return { faceIndex, slotIndex };
+  };
+
+  // 释放 slot（用于清理临时 meshes）
+  const releaseSlot = (periodIndex, faceIndex, slotIndex) => {
+    const key = `${periodIndex}-${faceIndex}-${slotIndex}`;
+    occupiedSlotsRef.current.delete(key);
+  };
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -580,7 +632,9 @@ export default function SlangSpace({ slangs, tempSlang, highlightSlang, onHoverC
 
       if (allComments.length === 0) return;
 
-      const clusters = splitIntoClustersByTime(allComments);
+      // 随机决定 cluster 数量：约一半 10 个，一半 5 个
+      const maxClusters = Math.random() > 0.5 ? 10 : 5;
+      const clusters = splitIntoClustersByTime(allComments, maxClusters);
 
       clusters.forEach((cluster) => {
         const { arranged, cols, rows } = arrangeCluster(cluster);
@@ -592,9 +646,17 @@ export default function SlangSpace({ slangs, tempSlang, highlightSlang, onHoverC
         clusterGroup.userData.isCluster = true;
         clusterGroup.userData.slangTerm = slang.term;
 
-        // 随机选一个面
-        const faceIndex = Math.floor(Math.random() * 6);
-        const { pos, lookDir, extraRotation } = getPositionOnCubeFace(cubeSize, faceIndex);
+        // 查找可用的 slot（避免重叠）
+        const { faceIndex, slotIndex } = findAvailableSlot(periodIndex);
+        clusterGroup.userData.periodIndex = periodIndex;
+        clusterGroup.userData.faceIndex = faceIndex;
+        clusterGroup.userData.slotIndex = slotIndex;
+
+        const { pos, lookDir, extraRotation } = getPositionOnCubeFace(
+          cubeSize,
+          faceIndex,
+          slotIndex
+        );
 
         clusterGroup.position.copy(pos);
 
@@ -665,8 +727,12 @@ export default function SlangSpace({ slangs, tempSlang, highlightSlang, onHoverC
     });
     tempMeshesRef.current = [];
 
-    // 清除旧的临时 groups
+    // 清除旧的临时 groups，并释放 slots
     tempGroupsRef.current.forEach((group) => {
+      // 释放占用的 slot
+      if (group.userData.periodIndex !== undefined) {
+        releaseSlot(group.userData.periodIndex, group.userData.faceIndex, group.userData.slotIndex);
+      }
       if (group.parent) group.parent.remove(group);
     });
     tempGroupsRef.current = [];
@@ -684,7 +750,9 @@ export default function SlangSpace({ slangs, tempSlang, highlightSlang, onHoverC
 
     if (allComments.length === 0) return;
 
-    const clusters = splitIntoClustersByTime(allComments);
+    // 随机决定 cluster 数量：约一半 10 个，一半 5 个////////////////////////////////////////////
+    const maxClusters = Math.random() > 0.3 ? 10 : 3;
+    const clusters = splitIntoClustersByTime(allComments, maxClusters);
 
     clusters.forEach((cluster) => {
       const { arranged, cols, rows } = arrangeCluster(cluster);
@@ -697,8 +765,13 @@ export default function SlangSpace({ slangs, tempSlang, highlightSlang, onHoverC
       clusterGroup.userData.slangTerm = tempSlang.term;
       clusterGroup.userData.isTemp = true;
 
-      const faceIndex = Math.floor(Math.random() * 6);
-      const { pos, lookDir, extraRotation } = getPositionOnCubeFace(cubeSize, faceIndex);
+      // 查找可用的 slot（避免重叠）
+      const { faceIndex, slotIndex } = findAvailableSlot(periodIndex);
+      clusterGroup.userData.periodIndex = periodIndex;
+      clusterGroup.userData.faceIndex = faceIndex;
+      clusterGroup.userData.slotIndex = slotIndex;
+
+      const { pos, lookDir, extraRotation } = getPositionOnCubeFace(cubeSize, faceIndex, slotIndex);
 
       clusterGroup.position.copy(pos);
       clusterGroup.lookAt(pos.clone().add(lookDir.multiplyScalar(100)));
