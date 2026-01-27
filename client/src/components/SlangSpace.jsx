@@ -22,14 +22,20 @@ const OUTER_CUBE_SIZE = 320; // 最外层 cube 的大小
 const CUBE_TWIST = 0.7; // 每层 cube 之间的扭转角度 (弧度)
 
 // 背景假片相关
-const BG_TILE_COUNT = 500; // 背景假片数量
+const BG_TILE_COUNT = 900; // 背景假片数量
 const BG_MIN_DIST = 350; // 假片最近距离
-const BG_MAX_DIST = 600; // 假片最远距离
+const BG_MAX_DIST = 500; // 假片最远距离
 const BG_OPACITY = 0.3; // 假片透明度
 
 // 缩放限制
 const ZOOM_MIN = 80; // 最近
-const ZOOM_MAX = 500; // 最远
+const ZOOM_MAX = 400; // 最远
+
+// 高亮相关
+const NORMAL_OPACITY = 0.5; // 非高亮时的透明度
+const DIRECT_HIGHLIGHT_OPACITY = 1.0; // 直接悬停的片
+const SLANG_HIGHLIGHT_OPACITY = 0.7; // 同 slang 其他片
+const VISITED_OPACITY = 1.0; // 被直接悬停过后离开的片
 /////////////////////////////////
 
 // 按时间分簇
@@ -214,10 +220,7 @@ function createTextTexture(comment, scale = 1) {
 
 // 创建背景假片（纯视觉，不可交互）
 function createBackgroundTiles(scene) {
-  const geo = new THREE.PlaneGeometry(
-    TILE_BASE_WIDTH * 1.5,
-    TILE_BASE_HEIGHT * 1.5
-  );
+  const geo = new THREE.PlaneGeometry(TILE_BASE_WIDTH * 1.5, TILE_BASE_HEIGHT * 1.5);
 
   // 灰色半透明材质
   const mat = new THREE.MeshBasicMaterial({
@@ -242,11 +245,7 @@ function createBackgroundTiles(scene) {
     );
 
     // 随机朝向
-    mesh.rotation.set(
-      Math.random() * Math.PI,
-      Math.random() * Math.PI,
-      Math.random() * Math.PI
-    );
+    mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
 
     // 标记为背景，不加入交互列表
     mesh.userData.isBackground = true;
@@ -289,7 +288,8 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
 
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
-    let hoveredMesh = null;
+    let hoveredSlang = null;
+    let directHoveredMesh = null;
 
     const onMouseMove = (e) => {
       const rect = renderer.domElement.getBoundingClientRect();
@@ -301,21 +301,57 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
 
       if (intersects.length > 0) {
         const mesh = intersects[0].object;
-        if (mesh !== hoveredMesh) {
-          if (hoveredMesh && hoveredMesh.material) {
-            hoveredMesh.material.opacity = 0.9;
+        const slangTerm = mesh.userData.slangTerm;
+
+        // 切换直接悬停的片
+        if (mesh !== directHoveredMesh) {
+          // 之前直接悬停的片降为 slang 高亮
+          if (
+            directHoveredMesh &&
+            directHoveredMesh.material &&
+            directHoveredMesh.userData.slangTerm === slangTerm
+          ) {
+            directHoveredMesh.material.opacity = SLANG_HIGHLIGHT_OPACITY;
           }
-          hoveredMesh = mesh;
-          if (mesh.material) {
-            mesh.material.opacity = 1.0;
+
+          directHoveredMesh = mesh;
+          mesh.userData.visited = true;
+          mesh.material.opacity = DIRECT_HIGHLIGHT_OPACITY;
+
+          onHoverComment(mesh.userData.comment, slangTerm);
+        }
+
+        if (slangTerm !== hoveredSlang) {
+          // 取消之前高亮的 slang
+          if (hoveredSlang) {
+            allMeshesRef.current.forEach((m) => {
+              if (m.userData.slangTerm === hoveredSlang && m.material) {
+                m.material.opacity = m.userData.visited ? VISITED_OPACITY : NORMAL_OPACITY;
+              }
+            });
           }
-          onHoverComment(mesh.userData.comment, mesh.userData.slangTerm);
+
+          // 高亮新的 slang 的所有片
+          hoveredSlang = slangTerm;
+          allMeshesRef.current.forEach((m) => {
+            if (m.userData.slangTerm === slangTerm && m.material) {
+              // 直接悬停的片 1.0，其他同 slang 的 0.7
+              m.material.opacity = m === mesh ? DIRECT_HIGHLIGHT_OPACITY : SLANG_HIGHLIGHT_OPACITY;
+            }
+          });
         }
       } else {
-        if (hoveredMesh && hoveredMesh.material) {
-          hoveredMesh.material.opacity = 0.9;
+        // 鼠标离开所有片
+        if (hoveredSlang) {
+          allMeshesRef.current.forEach((m) => {
+            if (m.userData.slangTerm === hoveredSlang && m.material) {
+              // 被直接悬停过的用 VISITED，否则用 NORMAL
+              m.material.opacity = m.userData.visited ? VISITED_OPACITY : NORMAL_OPACITY;
+            }
+          });
+          hoveredSlang = null;
         }
-        hoveredMesh = null;
+        directHoveredMesh = null;
         onHoverComment(null, null);
       }
     };
@@ -431,7 +467,7 @@ export default function SlangSpace({ slangs, highlightSlang, onHoverComment, onC
             map: texture,
             side: THREE.DoubleSide,
             transparent: true,
-            opacity: 0.9,
+            opacity: NORMAL_OPACITY,
           });
           const geo = new THREE.PlaneGeometry(planeW, planeH);
           const mesh = new THREE.Mesh(geo, mat);
