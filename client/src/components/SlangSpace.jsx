@@ -1,13 +1,16 @@
 import React, { useRef, useEffect } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass";
 
 /////////////////////////////////
 // 可调参数
-const TEXT_FONT_SIZE = 56;
+const TEXT_FONT_SIZE = 40;
 const TILE_BASE_WIDTH = 5;
 const TILE_BASE_HEIGHT = 3;
-const TILE_GAP = 0.3;
+const TILE_GAP = 1.5;
 
 // cube 时间相关
 const START_YEAR = 2019;
@@ -22,7 +25,7 @@ const OUTER_CUBE_SIZE = 360; // 最外层 cube 的大小
 const CUBE_TWIST = 0.7; // 每层 cube 之间的扭转角度 (弧度)
 
 // 背景假片相关
-const BG_TILE_COUNT = 900; // 背景假片数量
+const BG_TILE_COUNT = 1000; // 背景假片数量
 const BG_MIN_DIST = 390; // 假片最近距离
 const BG_MAX_DIST = 500; // 假片最远距离
 const BG_OPACITY = 0.3; // 假片透明度
@@ -34,7 +37,16 @@ const ZOOM_MAX = 400; // 最远
 // 高亮颜色相关
 const NORMAL_COLOR = 0x999999; // 初始灰色
 const HIGHLIGHT_COLOR = 0xffffff; // 直接悬停/被访问过的片：白色
-const SLANG_HIGHLIGHT_COLOR = 0x850000; // 同 slang 其他片：浅蓝
+const SLANG_HIGHLIGHT_COLOR = 0xe6e070; // 同 slang 其他片：亮红（配合发光效果）
+
+// 发光效果相关
+const BLOOM_STRENGTH = 0.7; // 直接选中的发光强度 (0 = 无发光)
+const BLOOM_RADIUS = 0.4; // 发光扩散半径
+const BLOOM_THRESHOLD = 0.5; // 触发发光的亮度阈值 (0-1，越低越多物体发光)
+const SLANG_GLOW_BRIGHTNESS = 1.1; // 同 slang 间接高亮的发光亮度倍数 (1 = 无额外发光，越大越亮越发光)
+
+// 预计算发光颜色
+const slangGlowColor = new THREE.Color(SLANG_HIGHLIGHT_COLOR).multiplyScalar(SLANG_GLOW_BRIGHTNESS);
 
 // 簇尺寸相关
 const CLUSTER_SIZE_MIN = 0.8; // 随机尺寸下限
@@ -141,6 +153,10 @@ function getCubeRotation(periodIndex) {
 const GRID_SIZE = 4;
 const TOTAL_SLOTS = GRID_SIZE * GRID_SIZE; // 16
 const SLOT_JITTER = 0.08; // 随机抖动范围（保持参差感）
+
+// 边缘格子（优先使用）和中间格子
+const EDGE_SLOTS = [0, 1, 2, 3, 4, 7, 8, 11, 12, 13, 14, 15]; // 12个
+const MIDDLE_SLOTS = [5, 6, 9, 10]; // 4个
 
 // 根据 slot 索引计算基础 uv 位置（-0.75 到 0.75 范围内均匀分布）
 function getSlotBasePosition(slotIndex) {
@@ -359,15 +375,16 @@ export default function SlangSpace({
   const cubeGroupsRef = useRef(new Map()); // periodIndex -> Group
   const occupiedSlotsRef = useRef(new Map()); // "periodIndex-faceIndex-slotIndex" -> true
 
-  // 查找可用的 slot（4x4 网格，每面 16 个位置）
+  // 查找可用的 slot（4x4 网格，优先边缘格子）
   const findAvailableSlot = (periodIndex) => {
-    // 随机打乱面和 slot 的顺序，增加随机性
+    // 随机打乱顺序，增加随机性
     const faces = [0, 1, 2, 3, 4, 5].sort(() => Math.random() - 0.5);
-    const slots = Array.from({ length: TOTAL_SLOTS }, (_, i) => i).sort(() => Math.random() - 0.5);
+    const edgeSlots = [...EDGE_SLOTS].sort(() => Math.random() - 0.5);
+    const middleSlots = [...MIDDLE_SLOTS].sort(() => Math.random() - 0.5);
 
-    // 尝试所有面的所有 slot
+    // 先尝试边缘格子
     for (const faceIndex of faces) {
-      for (const slotIndex of slots) {
+      for (const slotIndex of edgeSlots) {
         const key = `${periodIndex}-${faceIndex}-${slotIndex}`;
         if (!occupiedSlotsRef.current.has(key)) {
           occupiedSlotsRef.current.set(key, true);
@@ -376,9 +393,20 @@ export default function SlangSpace({
       }
     }
 
-    // 全满了（6面 × 16格 = 96个位置都满了），随机放置（允许重叠）
+    // 边缘满了，尝试中间格子
+    for (const faceIndex of faces) {
+      for (const slotIndex of middleSlots) {
+        const key = `${periodIndex}-${faceIndex}-${slotIndex}`;
+        if (!occupiedSlotsRef.current.has(key)) {
+          occupiedSlotsRef.current.set(key, true);
+          return { faceIndex, slotIndex };
+        }
+      }
+    }
+
+    // 全满了，随机放置（允许重叠）
     const faceIndex = Math.floor(Math.random() * 6);
-    const slotIndex = Math.floor(Math.random() * TOTAL_SLOTS);
+    const slotIndex = EDGE_SLOTS[Math.floor(Math.random() * EDGE_SLOTS.length)];
     return { faceIndex, slotIndex };
   };
 
@@ -403,7 +431,21 @@ export default function SlangSpace({
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(w, h);
+    renderer.toneMapping = THREE.ReinhardToneMapping;
     containerRef.current.appendChild(renderer.domElement);
+
+    // 设置发光后处理
+    const composer = new EffectComposer(renderer);
+    const renderPass = new RenderPass(scene, camera);
+    composer.addPass(renderPass);
+
+    const bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(w, h),
+      BLOOM_STRENGTH,
+      BLOOM_RADIUS,
+      BLOOM_THRESHOLD
+    );
+    composer.addPass(bloomPass);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -432,13 +474,13 @@ export default function SlangSpace({
 
         // 切换直接悬停的片
         if (mesh !== directHoveredMesh) {
-          // 之前直接悬停的片降为 slang 高亮色
+          // 之前直接悬停的片降为 slang 高亮色（带发光）
           if (
             directHoveredMesh &&
             directHoveredMesh.material &&
             directHoveredMesh.userData.slangTerm === slangTerm
           ) {
-            directHoveredMesh.material.color.setHex(SLANG_HIGHLIGHT_COLOR);
+            directHoveredMesh.material.color.copy(slangGlowColor);
           }
 
           directHoveredMesh = mesh;
@@ -463,8 +505,12 @@ export default function SlangSpace({
           hoveredSlang = slangTerm;
           allMeshesRef.current.forEach((m) => {
             if (m.userData.slangTerm === slangTerm && m.material) {
-              // 直接悬停的片白色，其他同 slang 的浅蓝
-              m.material.color.setHex(m === mesh ? HIGHLIGHT_COLOR : SLANG_HIGHLIGHT_COLOR);
+              // 直接悬停的片白色，其他同 slang 的红色（带发光）
+              if (m === mesh) {
+                m.material.color.setHex(HIGHLIGHT_COLOR);
+              } else {
+                m.material.color.copy(slangGlowColor);
+              }
             }
           });
         }
@@ -501,7 +547,7 @@ export default function SlangSpace({
     const animate = () => {
       requestAnimationFrame(animate);
       controls.update();
-      renderer.render(scene, camera);
+      composer.render(); // 使用 composer 渲染以应用发光效果
     };
     animate();
 
@@ -512,6 +558,7 @@ export default function SlangSpace({
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
+      composer.setSize(w, h); // 同时更新 composer 尺寸
     };
     window.addEventListener("resize", onResize);
 
@@ -519,6 +566,7 @@ export default function SlangSpace({
       window.removeEventListener("resize", onResize);
       renderer.domElement.removeEventListener("mousemove", onMouseMove);
       renderer.domElement.removeEventListener("click", onClick);
+      composer.dispose();
       renderer.dispose();
       if (containerRef.current) {
         containerRef.current.removeChild(renderer.domElement);
@@ -632,8 +680,8 @@ export default function SlangSpace({
 
       if (allComments.length === 0) return;
 
-      // 随机决定 cluster 数量：约一半 10 个，一半 5 个
-      const maxClusters = Math.random() > 0.5 ? 10 : 5;
+      // 随机决定 cluster 数量：约一半 10 个，一半 5 个////////////////////////////////////////////
+      const maxClusters = Math.random() > 0.1 ? 10 : 5;
       const clusters = splitIntoClustersByTime(allComments, maxClusters);
 
       clusters.forEach((cluster) => {
@@ -794,7 +842,7 @@ export default function SlangSpace({
         const mat = new THREE.MeshBasicMaterial({
           map: texture,
           side: THREE.DoubleSide,
-          color: SLANG_HIGHLIGHT_COLOR, // 临时片默认高亮显示
+          color: slangGlowColor.clone(), // 临时片默认高亮显示（带发光）
         });
         const geo = new THREE.PlaneGeometry(planeW, planeH);
         const mesh = new THREE.Mesh(geo, mat);
@@ -827,8 +875,8 @@ export default function SlangSpace({
     allMeshesRef.current.forEach((mesh) => {
       if (mesh.material) {
         if (mesh.userData.slangTerm === highlightSlang) {
-          // 匹配的 slang：高亮为浅蓝
-          mesh.material.color.setHex(SLANG_HIGHLIGHT_COLOR);
+          // 匹配的 slang：高亮为红色（带发光）
+          mesh.material.color.copy(slangGlowColor);
         } else if (!mesh.userData.visited) {
           // 非匹配且未访问过：恢复灰色
           mesh.material.color.setHex(NORMAL_COLOR);

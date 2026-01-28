@@ -17,6 +17,7 @@ const Skeleton = () => {
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
   const [modal, setModal] = useState(null);
+  const [showIntro, setShowIntro] = useState(true); // intro modal
   const slangsRef = React.useRef(slangs); // 用 ref 避免回调依赖
   const tempSlangRef = React.useRef(tempSlang);
 
@@ -155,6 +156,42 @@ const Skeleton = () => {
             <p className="hover-user">u/{hoveredComment.user}</p>
             {hoveredComment.time && <p className="hover-time">{hoveredComment.time}</p>}
             <p className="hover-text">{hoveredComment.text}</p>
+          </div>
+        )}
+
+        {/* Intro modal */}
+        {showIntro && (
+          <div className="intro-overlay" onClick={() => setShowIntro(false)}>
+            <div className="intro-modal" onClick={(e) => e.stopPropagation()}>
+              <h1 className="intro-title">Internet Babel</h1>
+              <p className="intro-subtitle">a semantic tracker</p>
+
+              <div className="intro-text">
+                <p>
+                  This project is built on a simple idea: <strong>Context as a Language</strong>.
+                </p>
+                <p>
+                  Rather than understanding each other only through the final words we speak,
+                  this project invites us to understand one another through the process of thinking —
+                  through context and background.
+                </p>
+              </div>
+
+              <div className="intro-flow">
+                <span className="flow-label">Initial Meaning</span>
+                <span className="flow-arrow">→</span>
+                <span className="flow-label">Key Events</span>
+                <span className="flow-arrow">→</span>
+                <span className="flow-label">Daily Usage</span>
+                <span className="flow-arrow">→</span>
+                <span className="flow-label">New Meaning</span>
+                <span className="flow-arrow flow-loop">↻</span>
+              </div>
+
+              <button className="intro-enter-btn" onClick={() => setShowIntro(false)}>
+                Enter
+              </button>
+            </div>
           </div>
         )}
       </div>

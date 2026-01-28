@@ -4,11 +4,10 @@
   "description": "",
   "main": "server/server.js",
   "scripts": {
-    "dev": "vite",
+    "dev": "nodemon",
     "build": "vite build",
     "preview": "vite preview",
-    "start": "nodemon",
-    "hello": "echo Hello, or no!"
+    "start": "node server/server.js"
   },
   "repository": {
     "type": "git",
