@@ -9,7 +9,7 @@ const Skeleton = () => {
   const { userId, handleLogin, handleLogout } = useContext(UserContext);
 
   const [slangs, setSlangs] = useState([]);
-  const [tempSlang, setTempSlang] = useState(null); // 临时搜索结果（未保存）
+  const [tempSlang, setTempSlang] = useState(null); //temp result
   const [currentSlang, setCurrentSlang] = useState(null);
   const [highlightSlang, setHighlightSlang] = useState(null);
   const [hoveredComment, setHoveredComment] = useState(null);
@@ -18,10 +18,10 @@ const Skeleton = () => {
   const [loading, setLoading] = useState(false);
   const [modal, setModal] = useState(null);
   const [showIntro, setShowIntro] = useState(true); // intro modal
-  const slangsRef = React.useRef(slangs); // 用 ref 避免回调依赖
+  const slangsRef = React.useRef(slangs); /////ref
   const tempSlangRef = React.useRef(tempSlang);
 
-  // 保持 refs 同步
+  //maintain refs
   useEffect(() => {
     slangsRef.current = slangs;
   }, [slangs]);
@@ -30,7 +30,7 @@ const Skeleton = () => {
     tempSlangRef.current = tempSlang;
   }, [tempSlang]);
 
-  // load all slangs from db
+  // load all slangs
   useEffect(() => {
     get("/api/slangs").then((data) => {
       setSlangs(data || []);
@@ -44,7 +44,7 @@ const Skeleton = () => {
     setLoading(true);
     setStatus("connecting...");
     setCurrentSlang(null);
-    setTempSlang(null); // 清除之前的临时结果
+    setTempSlang(null); /////
 
     const evtSource = new EventSource(`/api/slang/${encodeURIComponent(term)}/stream`);
 
@@ -67,7 +67,7 @@ const Skeleton = () => {
       const data = JSON.parse(e.data);
       setCurrentSlang(data);
       setHighlightSlang(data.term);
-      // 新搜索结果先放入临时状态，不直接加入 slangs
+      /////temp state
       setTempSlang(data);
       setStatus("done");
     });
@@ -101,7 +101,7 @@ const Skeleton = () => {
       });
       const savedSlang = { ...currentSlang, fromDb: true };
       setCurrentSlang(savedSlang);
-      // 保存后：从临时状态移到正式列表
+      ///////update collection
       setSlangs((prev) => {
         if (prev.find((s) => s.term === savedSlang.term)) return prev;
         return [...prev, savedSlang];
@@ -121,7 +121,7 @@ const Skeleton = () => {
     setModal({ comment, slangTerm });
     setHighlightSlang(slangTerm);
 
-    // 检查是否点击的是临时片
+    //check ( code advised by llm )//////////////////////
     const currentTemp = tempSlangRef.current;
     if (currentTemp && currentTemp.term === slangTerm) {
       // 点击临时片，不清除临时数据，设置 currentSlang 为临时数据
@@ -140,7 +140,7 @@ const Skeleton = () => {
 
   return (
     <div className="app-container">
-      {/* Left: 3D space */}
+      {/* 3D space */}
       <div className="left-panel">
         <SlangSpace
           slangs={slangs}
@@ -150,7 +150,7 @@ const Skeleton = () => {
           onClickComment={onClickComment}
         />
 
-        {/* hover info bottom-left */}
+        {/* bottom-left info */}
         {hoveredComment && (
           <div className="hover-info">
             <p className="hover-user">u/{hoveredComment.user}</p>
@@ -159,7 +159,7 @@ const Skeleton = () => {
           </div>
         )}
 
-        {/* Intro modal */}
+        {/* Intro */}
         {showIntro && (
           <div className="intro-overlay" onClick={() => setShowIntro(false)}>
             <div className="intro-modal" onClick={(e) => e.stopPropagation()}>
@@ -171,8 +171,8 @@ const Skeleton = () => {
                   This project is built on a simple idea: <strong>Context as a Language</strong>.
                 </p>
                 <p>
-                  Rather than understanding each other only through the final words we speak,
-                  this project invites us to understand one another through the process of thinking —
+                  Rather than understanding each other only through the final words we speak, this
+                  project invites us to understand one another through the process of thinking —
                   through context and background.
                 </p>
               </div>
@@ -196,12 +196,19 @@ const Skeleton = () => {
         )}
       </div>
 
-      {/* Right: search + analysis */}
+      {/* Right search + analysis */}
       <div className="right-panel">
         <div className="header">
           <h1>Slang Tracker</h1>
           {userId ? (
-            <button onClick={() => { googleLogout(); handleLogout(); }}>logout</button>
+            <button
+              onClick={() => {
+                googleLogout();
+                handleLogout();
+              }}
+            >
+              logout
+            </button>
           ) : (
             <GoogleLogin onSuccess={handleLogin} onError={console.log} />
           )}
@@ -237,9 +244,7 @@ const Skeleton = () => {
                       </div>
                       <p className="period-meaning">{p.meaning}</p>
                       <p className="origin">{p.origin}</p>
-                      <p className="comment-count">
-                        {p.comments?.length || 0} comments
-                      </p>
+                      <p className="comment-count">{p.comments?.length || 0} comments</p>
                     </div>
                   ))}
                 </div>
@@ -249,9 +254,7 @@ const Skeleton = () => {
                     save to collection
                   </button>
                 )}
-                {currentSlang.fromDb && (
-                  <p className="saved-hint">in collection</p>
-                )}
+                {currentSlang.fromDb && <p className="saved-hint">in collection</p>}
               </div>
             )}
           </>
@@ -264,7 +267,9 @@ const Skeleton = () => {
       {modal && (
         <div className="modal-overlay" onClick={() => setModal(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <button className="close-btn" onClick={() => setModal(null)}>×</button>
+            <button className="close-btn" onClick={() => setModal(null)}>
+              ×
+            </button>
             <p className="modal-user">u/{modal.comment.user}</p>
             {modal.comment.time && <p className="modal-time">{modal.comment.time}</p>}
             <p className="modal-text">{modal.comment.text}</p>

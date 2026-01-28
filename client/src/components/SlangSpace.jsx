@@ -6,71 +6,11 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass";
 
 /////////////////////////////////
-// 可调参数
+
 const TEXT_FONT_SIZE = 40;
 const TILE_BASE_WIDTH = 5;
 const TILE_BASE_HEIGHT = 3;
 const TILE_GAP = 1.5;
-
-// cube of time
-const START_YEAR = 2019;
-const START_MONTH = 1;
-const MONTHS_PER_CUBE = 6; /////////////
-const END_YEAR = 2025;
-const END_MONTH = 12; //  cutoff
-
-// cube size
-const INNER_CUBE_SIZE = 60; // inner cube
-const OUTER_CUBE_SIZE = 360; // biggest cube
-const CUBE_TWIST = 0.7;
-
-// fake background tiles
-const BG_TILE_COUNT = 1000; // 背景假片数量
-const BG_MIN_DIST = 390; // 假片最近距离
-const BG_MAX_DIST = 500; // 假片最远距离
-const BG_OPACITY = 0.3; // 假片透明度
-
-// 缩放限制
-const ZOOM_MIN = 80; // 最近
-const ZOOM_MAX = 400; // 最远
-
-// 高亮颜色相关
-const NORMAL_COLOR = 0x999999; // 初始灰色
-const HIGHLIGHT_COLOR = 0xffffff; // 直接悬停/被访问过的片：白色
-const SLANG_HIGHLIGHT_COLOR = 0xe6e070; // 同 slang 其他片：亮红（配合发光效果）
-
-// 发光效果相关
-const BLOOM_STRENGTH = 0.7; // 直接选中的发光强度 (0 = 无发光)
-const BLOOM_RADIUS = 0.4; // 发光扩散半径
-const BLOOM_THRESHOLD = 0.5; // 触发发光的亮度阈值 (0-1，越低越多物体发光)
-const SLANG_GLOW_BRIGHTNESS = 1.1; // 同 slang 间接高亮的发光亮度倍数 (1 = 无额外发光，越大越亮越发光)
-
-// 预计算发光颜色
-const slangGlowColor = new THREE.Color(SLANG_HIGHLIGHT_COLOR).multiplyScalar(SLANG_GLOW_BRIGHTNESS);
-
-// 簇尺寸相关
-const CLUSTER_SIZE_MIN = 0.8; // 随机尺寸下限
-const CLUSTER_SIZE_MAX = 2.0; // 随机尺寸上限
-const LAYER_SIZE_FACTOR = 0.1; // 层级尺寸因子：最内层乘(1-此值)，最外层乘(1+此值)，中间层不变
-
-// Cube 边框相关
-const CUBE_EDGE_OPACITY = 0.83; // cube 边框透明度 (0 = 隐形, 1 = 完全可见)
-const CUBE_EDGE_COLOR = 0x989898; // 边框颜色
-const CUBE_EDGE_DASH_SIZE = 0.5; // 虚线段长度
-const CUBE_EDGE_GAP_SIZE = 2; // 虚线间隔长度
-const CUBE_EDGE_SKIP_INNER = 2; // 最内层几个 cube 不显示边框
-
-// Cube 时间标签相关
-const CUBE_LABEL_OPACITY = 1; // 标签透明度 (0 = 隐形)
-const CUBE_LABEL_SIZE = 8; // 标签尺寸
-
-// 簇连接线相关
-const CONNECTION_LINE_WIDTH = 2; // 连接线粗细
-const SLANG_LABEL_SIZE = 12; // slang 文字标签尺寸
-const SLANG_LABEL_OFFSET = 15; // 文字标签离第一个簇的距离
-/////////////////////////////////
-
-// 按时间分簇
 function splitIntoClustersByTime(comments, maxClusters = 10) {
   if (!comments || comments.length === 0) return [];
 
@@ -97,13 +37,19 @@ function splitIntoClustersByTime(comments, maxClusters = 10) {
   return clusters;
 }
 
-// 计算从起始点到某个日期经过了多少个周期
+/////////////////////////////////
+// cube of time
+const START_YEAR = 2019;
+const START_MONTH = 1;
+const MONTHS_PER_CUBE = 6; /////////////
+const END_YEAR = 2025;
+const END_MONTH = 12; //  cutoff
+
 function getDatePeriodIndex(date) {
   const d = new Date(date);
   const year = d.getFullYear();
   const month = d.getMonth() + 1; // 1-12
 
-  // 从起始点开始计算经过的月数
   const startMonths = START_YEAR * 12 + START_MONTH;
   const currentMonths = year * 12 + month;
   const monthsDiff = currentMonths - startMonths;
@@ -111,14 +57,13 @@ function getDatePeriodIndex(date) {
   return Math.floor(monthsDiff / MONTHS_PER_CUBE);
 }
 
-// 计算总共有多少个周期
 function getTotalPeriods() {
   const startMonths = START_YEAR * 12 + START_MONTH;
   const endMonths = END_YEAR * 12 + END_MONTH;
   return Math.ceil((endMonths - startMonths) / MONTHS_PER_CUBE);
 }
 
-// 获取周期的时间范围标签（只显示起始年月）
+////label
 function getPeriodLabel(periodIndex) {
   const startMonths = START_YEAR * 12 + START_MONTH;
   const periodStartMonths = startMonths + periodIndex * MONTHS_PER_CUBE;
@@ -129,18 +74,21 @@ function getPeriodLabel(periodIndex) {
   return `${startYear}.${startMonth}`;
 }
 
-// 获取簇的平均时间对应的周期索引
 function getClusterPeriodIndex(cluster) {
   const validTimes = cluster.filter((c) => c.time).map((c) => new Date(c.time).getTime());
   if (validTimes.length === 0) {
-    // 没有时间的放到最新的周期
     return getTotalPeriods() - 1;
   }
   const avgTime = validTimes.reduce((a, b) => a + b, 0) / validTimes.length;
   return getDatePeriodIndex(new Date(avgTime));
 }
 
-// 根据周期索引获取 cube 大小
+/////////////////////cube size
+const INNER_CUBE_SIZE = 60; // inner cube
+const OUTER_CUBE_SIZE = 360; // biggest cube
+const CUBE_TWIST = 0.7;
+
+//cube size by time squence
 function getCubeSize(periodIndex) {
   const total = getTotalPeriods();
   const clampedIndex = Math.max(0, Math.min(total - 1, periodIndex));
@@ -148,42 +96,36 @@ function getCubeSize(periodIndex) {
   return INNER_CUBE_SIZE + ratio * (OUTER_CUBE_SIZE - INNER_CUBE_SIZE);
 }
 
-// 根据周期索引获取 cube 的累积旋转角度
 function getCubeRotation(periodIndex) {
   return periodIndex * CUBE_TWIST;
 }
 
-// Slot 位置定义：4个角落 + 1个中心
-// 网格配置：4x4 = 16 个 slot
+/////////////////////////////////
+///Slot
 const GRID_SIZE = 4;
-const TOTAL_SLOTS = GRID_SIZE * GRID_SIZE; // 16
-const SLOT_JITTER = 0.08; // 随机抖动范围（保持参差感）
+const TOTAL_SLOTS = GRID_SIZE * GRID_SIZE;
+const SLOT_JITTER = 0.08; ////
 
-// 边缘格子（优先使用）和中间格子
-const EDGE_SLOTS = [0, 1, 2, 3, 4, 7, 8, 11, 12, 13, 14, 15]; // 12个
-const MIDDLE_SLOTS = [5, 6, 9, 10]; // 4个
+const EDGE_SLOTS = [0, 1, 2, 3, 4, 7, 8, 11, 12, 13, 14, 15];
+const MIDDLE_SLOTS = [5, 6, 9, 10];
 
-// 根据 slot 索引计算基础 uv 位置（-0.75 到 0.75 范围内均匀分布）
+//uv position in each face
 function getSlotBasePosition(slotIndex) {
   const row = Math.floor(slotIndex / GRID_SIZE);
   const col = slotIndex % GRID_SIZE;
-  // 从 -0.7 到 0.7，均匀分布
+  //0.7
   const u = -0.7 + (col / (GRID_SIZE - 1)) * 1.4;
   const v = -0.7 + (row / (GRID_SIZE - 1)) * 1.4;
   return { u, v };
 }
 
-// 在 cube 的某个面上指定 slot 放置
 function getPositionOnCubeFace(cubeSize, faceIndex, slotIndex) {
   const half = cubeSize / 2;
 
-  // 获取 slot 的基础 uv 位置
   const basePos = getSlotBasePosition(slotIndex);
-  // 添加随机抖动
   const u = (basePos.u + (Math.random() - 0.5) * SLOT_JITTER * 2) * half;
   const v = (basePos.v + (Math.random() - 0.5) * SLOT_JITTER * 2) * half;
-
-  // 随机选择四个朝向之一 (0°, 90°, 180°, 270°)
+  //fix rotation
   const rotationOptions = [0, Math.PI / 2, Math.PI, Math.PI * 1.5];
   const extraRotation = rotationOptions[Math.floor(Math.random() * 4)];
 
@@ -220,7 +162,7 @@ function getPositionOnCubeFace(cubeSize, faceIndex, slotIndex) {
   return { pos, lookDir, extraRotation };
 }
 
-// 排列簇内的 comment
+///comment incluster
 function arrangeCluster(comments) {
   const n = comments.length;
   const cols = Math.ceil(Math.sqrt(n * 2));
@@ -237,7 +179,7 @@ function arrangeCluster(comments) {
   return { arranged, cols, rows };
 }
 
-// 创建文字贴图 - 只显示前 3 个词
+/////////////////////
 function createTextTexture(comment, scale = 1) {
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
@@ -281,11 +223,13 @@ function createTextTexture(comment, scale = 1) {
   return texture;
 }
 
-// 创建背景假片（纯视觉，不可交互）
+///////////// fake background tiles
+const BG_TILE_COUNT = 1000;
+const BG_MIN_DIST = 390;
+const BG_MAX_DIST = 500;
+const BG_OPACITY = 0.3;
 function createBackgroundTiles(scene) {
   const geo = new THREE.PlaneGeometry(TILE_BASE_WIDTH * 1.5, TILE_BASE_HEIGHT * 1.5);
-
-  // 灰色半透明材质
   const mat = new THREE.MeshBasicMaterial({
     color: 0x888888,
     side: THREE.DoubleSide,
@@ -296,7 +240,7 @@ function createBackgroundTiles(scene) {
   for (let i = 0; i < BG_TILE_COUNT; i++) {
     const mesh = new THREE.Mesh(geo, mat);
 
-    // 随机球面分布
+    //llm
     const dist = BG_MIN_DIST + Math.random() * (BG_MAX_DIST - BG_MIN_DIST);
     const theta = Math.random() * Math.PI * 2;
     const phi = (Math.random() - 0.5) * Math.PI;
@@ -306,18 +250,17 @@ function createBackgroundTiles(scene) {
       dist * Math.sin(phi),
       dist * Math.cos(phi) * Math.sin(theta)
     );
-
-    // 随机朝向
     mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
-
-    // 标记为背景，不加入交互列表
     mesh.userData.isBackground = true;
 
     scene.add(mesh);
   }
 }
 
-// 创建 cube 时间标签（贴在顶面后边）
+/////////////////////////////Cube label(time label)
+const CUBE_LABEL_OPACITY = 1;
+const CUBE_LABEL_SIZE = 8;
+
 function createCubeLabel(periodIndex, cubeSize) {
   if (CUBE_LABEL_OPACITY <= 0) return null;
 
@@ -328,7 +271,6 @@ function createCubeLabel(periodIndex, cubeSize) {
   canvas.width = 1024;
   canvas.height = 128;
 
-  // 不填充背景，保持透明
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   ctx.fillStyle = "#ffffff";
@@ -343,10 +285,10 @@ function createCubeLabel(periodIndex, cubeSize) {
     transparent: true,
     opacity: CUBE_LABEL_OPACITY,
     side: THREE.DoubleSide,
-    alphaTest: 0.1, // 丢弃透明像素，去掉"底"
+    alphaTest: 0.1, //llm
   });
 
-  // 平面贴在顶面后边
+  //placement
   const aspect = canvas.width / canvas.height;
   const labelHeight = CUBE_LABEL_SIZE;
   const labelWidth = labelHeight * aspect;
@@ -354,9 +296,7 @@ function createCubeLabel(periodIndex, cubeSize) {
   const mesh = new THREE.Mesh(geo, material);
 
   const half = cubeSize / 2;
-  // 位置：顶面后边的最左端
   mesh.position.set(-half + labelWidth / 2, half + 0.1, -half + labelHeight / 2);
-  // 旋转：平躺在顶面（绕X轴-90度），文字沿X轴方向
   mesh.rotation.x = -Math.PI / 2;
   mesh.rotation.y = 0;
   mesh.rotation.z = 0;
@@ -364,7 +304,23 @@ function createCubeLabel(periodIndex, cubeSize) {
   return mesh;
 }
 
-// 创建 slang 文字标签（用于连接线起点）
+/////////////////////////////////
+//hilight colors
+const NORMAL_COLOR = 0x999999;
+const HIGHLIGHT_COLOR = 0xffffff; //directly hovered
+const SLANG_HIGHLIGHT_COLOR = 0xe6e070; //same slang
+//bloom, llm
+const BLOOM_STRENGTH = 0.7;
+const BLOOM_RADIUS = 0.4;
+const BLOOM_THRESHOLD = 0.5; /////
+const SLANG_GLOW_BRIGHTNESS = 1.1;
+
+const slangGlowColor = new THREE.Color(SLANG_HIGHLIGHT_COLOR).multiplyScalar(SLANG_GLOW_BRIGHTNESS);
+
+//connect line
+const CONNECTION_LINE_WIDTH = 2;
+const SLANG_LABEL_SIZE = 12;
+const SLANG_LABEL_OFFSET = 15;
 function createSlangLabel(text) {
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
@@ -373,7 +329,6 @@ function createSlangLabel(text) {
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // 使用 slangGlowColor 的颜色
   const r = Math.min(255, Math.floor(slangGlowColor.r * 255));
   const g = Math.min(255, Math.floor(slangGlowColor.g * 255));
   const b = Math.min(255, Math.floor(slangGlowColor.b * 255));
@@ -397,6 +352,21 @@ function createSlangLabel(text) {
   return sprite;
 }
 
+/////////////////////////////////
+///zoom limits
+const ZOOM_MIN = 80;
+const ZOOM_MAX = 400;
+// Cube edge
+const CUBE_EDGE_OPACITY = 0.83;
+const CUBE_EDGE_COLOR = 0x989898;
+const CUBE_EDGE_DASH_SIZE = 0.5;
+const CUBE_EDGE_GAP_SIZE = 2;
+const CUBE_EDGE_SKIP_INNER = 2;
+
+const CLUSTER_SIZE_MIN = 0.8;
+const CLUSTER_SIZE_MAX = 2.0;
+const LAYER_SIZE_FACTOR = 0.1;
+
 export default function SlangSpace({
   slangs,
   tempSlang,
@@ -408,21 +378,19 @@ export default function SlangSpace({
   const sceneRef = useRef(null);
   const meshesRef = useRef(new Map());
   const allMeshesRef = useRef([]);
-  const tempMeshesRef = useRef([]); // 临时搜索结果的 meshes
-  const tempGroupsRef = useRef([]); // 临时搜索结果的 groups
+  const tempMeshesRef = useRef([]); //temp
+  const tempGroupsRef = useRef([]);
   const cubeGroupsRef = useRef(new Map()); // periodIndex -> Group
-  const occupiedSlotsRef = useRef(new Map()); // "periodIndex-faceIndex-slotIndex" -> true
-  const slangClustersRef = useRef(new Map()); // slangTerm -> [{ group, avgTime, cubeGroup }]
-  const connectionObjectsRef = useRef([]); // 当前显示的连接线和标签
+  const occupiedSlotsRef = useRef(new Map()); //true
+  const slangClustersRef = useRef(new Map());
+  const connectionObjectsRef = useRef([]);
 
-  // 查找可用的 slot（4x4 网格，优先边缘格子）
+  //find slot, algorithm by llm
   const findAvailableSlot = (periodIndex) => {
-    // 随机打乱顺序，增加随机性
     const faces = [0, 1, 2, 3, 4, 5].sort(() => Math.random() - 0.5);
     const edgeSlots = [...EDGE_SLOTS].sort(() => Math.random() - 0.5);
     const middleSlots = [...MIDDLE_SLOTS].sort(() => Math.random() - 0.5);
 
-    // 先尝试边缘格子
     for (const faceIndex of faces) {
       for (const slotIndex of edgeSlots) {
         const key = `${periodIndex}-${faceIndex}-${slotIndex}`;
@@ -433,7 +401,7 @@ export default function SlangSpace({
       }
     }
 
-    // 边缘满了，尝试中间格子
+    //middle
     for (const faceIndex of faces) {
       for (const slotIndex of middleSlots) {
         const key = `${periodIndex}-${faceIndex}-${slotIndex}`;
@@ -444,13 +412,13 @@ export default function SlangSpace({
       }
     }
 
-    // 全满了，随机放置（允许重叠）
+    //full
     const faceIndex = Math.floor(Math.random() * 6);
     const slotIndex = EDGE_SLOTS[Math.floor(Math.random() * EDGE_SLOTS.length)];
     return { faceIndex, slotIndex };
   };
 
-  // 释放 slot（用于清理临时 meshes）
+  //clear temp slot meshes
   const releaseSlot = (periodIndex, faceIndex, slotIndex) => {
     const key = `${periodIndex}-${faceIndex}-${slotIndex}`;
     occupiedSlotsRef.current.delete(key);
@@ -474,7 +442,7 @@ export default function SlangSpace({
     renderer.toneMapping = THREE.ReinhardToneMapping;
     containerRef.current.appendChild(renderer.domElement);
 
-    // 设置发光后处理
+    //after bloom
     const composer = new EffectComposer(renderer);
     const renderPass = new RenderPass(scene, camera);
     composer.addPass(renderPass);
@@ -492,7 +460,6 @@ export default function SlangSpace({
     controls.minDistance = ZOOM_MIN;
     controls.maxDistance = ZOOM_MAX;
 
-    // 创建背景假片
     createBackgroundTiles(scene);
 
     const raycaster = new THREE.Raycaster();
@@ -500,7 +467,6 @@ export default function SlangSpace({
     let hoveredSlang = null;
     let directHoveredMesh = null;
 
-    // 清除连接线和标签
     const clearConnections = () => {
       connectionObjectsRef.current.forEach((obj) => {
         if (obj.parent) obj.parent.remove(obj);
@@ -513,23 +479,21 @@ export default function SlangSpace({
       connectionObjectsRef.current = [];
     };
 
-    // 创建连接线和标签
+    //create connections
     const createConnections = (slangTerm) => {
       const clusters = slangClustersRef.current.get(slangTerm);
       if (!clusters || clusters.length < 2) return;
 
-      // 按时间排序（最早到最新）
+      // sort by avgTime
       const sorted = [...clusters].sort((a, b) => a.avgTime - b.avgTime);
 
-      // 获取每个簇的世界坐标
+      // get world positions
       const positions = sorted.map(({ group, cubeGroup }) => {
         const worldPos = new THREE.Vector3();
         group.getWorldPosition(worldPos);
         return worldPos;
       });
 
-      // 创建连接线（使用 Line2 实现粗线条，但简单起见用多条细线模拟）
-      // 使用 LineBasicMaterial 的 linewidth 在 WebGL 中可能不生效，所以用 BufferGeometry
       const lineGeometry = new THREE.BufferGeometry().setFromPoints(positions);
       const lineMaterial = new THREE.LineBasicMaterial({
         color: slangGlowColor,
@@ -539,10 +503,10 @@ export default function SlangSpace({
       scene.add(line);
       connectionObjectsRef.current.push(line);
 
-      // 创建 slang 文字标签
+      // add label at first cluster
       const label = createSlangLabel(slangTerm);
 
-      // 计算标签位置：在第一个簇的位置，沿着从第二个簇指向第一个簇的方向偏移
+      // calculate label position: at first cluster, offset along direction from second to first
       const firstPos = positions[0];
       const secondPos = positions[1];
       const direction = new THREE.Vector3().subVectors(firstPos, secondPos).normalize();
@@ -565,9 +529,7 @@ export default function SlangSpace({
         const mesh = intersects[0].object;
         const slangTerm = mesh.userData.slangTerm;
 
-        // 切换直接悬停的片
         if (mesh !== directHoveredMesh) {
-          // 之前直接悬停的片降为 slang 高亮色（带发光）
           if (
             directHoveredMesh &&
             directHoveredMesh.material &&
@@ -584,23 +546,19 @@ export default function SlangSpace({
         }
 
         if (slangTerm !== hoveredSlang) {
-          // 取消之前高亮的 slang
           if (hoveredSlang) {
             allMeshesRef.current.forEach((m) => {
               if (m.userData.slangTerm === hoveredSlang && m.material) {
-                // 被直接悬停过的保持白色，否则恢复灰色
+                //restore
                 m.material.color.setHex(m.userData.visited ? HIGHLIGHT_COLOR : NORMAL_COLOR);
               }
             });
-            // 清除旧的连接线
             clearConnections();
           }
 
-          // 高亮新的 slang 的所有片
           hoveredSlang = slangTerm;
           allMeshesRef.current.forEach((m) => {
             if (m.userData.slangTerm === slangTerm && m.material) {
-              // 直接悬停的片白色，其他同 slang 的红色（带发光）
               if (m === mesh) {
                 m.material.color.setHex(HIGHLIGHT_COLOR);
               } else {
@@ -609,19 +567,16 @@ export default function SlangSpace({
             }
           });
 
-          // 创建新的连接线
           createConnections(slangTerm);
         }
       } else {
-        // 鼠标离开所有片
+        //mouse out
         if (hoveredSlang) {
           allMeshesRef.current.forEach((m) => {
             if (m.userData.slangTerm === hoveredSlang && m.material) {
-              // 被直接悬停过的保持白色，否则恢复灰色
               m.material.color.setHex(m.userData.visited ? HIGHLIGHT_COLOR : NORMAL_COLOR);
             }
           });
-          // 清除连接线
           clearConnections();
           hoveredSlang = null;
         }
@@ -647,7 +602,7 @@ export default function SlangSpace({
     const animate = () => {
       requestAnimationFrame(animate);
       controls.update();
-      composer.render(); // 使用 composer 渲染以应用发光效果
+      composer.render(); //bloom////
     };
     animate();
 
@@ -658,7 +613,7 @@ export default function SlangSpace({
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
-      composer.setSize(w, h); // 同时更新 composer 尺寸
+      composer.setSize(w, h); //update composer size
     };
     window.addEventListener("resize", onResize);
 
@@ -675,13 +630,12 @@ export default function SlangSpace({
     };
   }, [onHoverComment, onClickComment]);
 
-  // 创建 cube 的 12 条虚线边
+  //edge lines
   const createCubeEdges = (cubeSize) => {
     if (CUBE_EDGE_OPACITY <= 0) return null;
 
     const half = cubeSize / 2;
     const vertices = [
-      // 8 个顶点
       [-half, -half, -half],
       [half, -half, -half],
       [half, half, -half],
@@ -692,20 +646,19 @@ export default function SlangSpace({
       [-half, half, half],
     ];
 
-    // 12 条边的顶点索引对
     const edges = [
       [0, 1],
       [1, 2],
       [2, 3],
-      [3, 0], // 后面
+      [3, 0],
       [4, 5],
       [5, 6],
       [6, 7],
-      [7, 4], // 前面
+      [7, 4],
       [0, 4],
       [1, 5],
       [2, 6],
-      [3, 7], // 连接前后
+      [3, 7],
     ];
 
     const edgeGroup = new THREE.Group();
@@ -724,14 +677,14 @@ export default function SlangSpace({
         new THREE.Vector3(...vertices[j]),
       ]);
       const line = new THREE.Line(geometry, material);
-      line.computeLineDistances(); // 虚线需要这个
+      line.computeLineDistances(); ///dashed
       edgeGroup.add(line);
     });
 
     return edgeGroup;
   };
 
-  // 创建或获取某个周期的 cube group
+  // get or create cube group for a period
   const getOrCreateCubeGroup = (scene, periodIndex) => {
     if (cubeGroupsRef.current.has(periodIndex)) {
       return cubeGroupsRef.current.get(periodIndex);
@@ -740,14 +693,12 @@ export default function SlangSpace({
     const group = new THREE.Group();
     const rotation = getCubeRotation(periodIndex);
 
-    // 每层 cube 累积扭转
     group.rotation.x = rotation * 0.7;
     group.rotation.y = rotation;
     group.rotation.z = rotation * 0.4;
 
     const cubeSize = getCubeSize(periodIndex);
 
-    // 添加虚线边框（跳过最内层的几个）
     if (periodIndex >= CUBE_EDGE_SKIP_INNER) {
       const edges = createCubeEdges(cubeSize);
       if (edges) {
@@ -755,7 +706,6 @@ export default function SlangSpace({
       }
     }
 
-    // 添加时间标签
     const label = createCubeLabel(periodIndex, cubeSize);
     if (label) {
       group.add(label);
@@ -781,7 +731,7 @@ export default function SlangSpace({
 
       if (allComments.length === 0) return;
 
-      // 随机决定 cluster 数量：约一半 10 个，一半 5 个////////////////////////////////////////////
+      // 随机决定 cluster 数量：约一半 10 个，一半 5 个////////
       const maxClusters = Math.random() > 0.1 ? 10 : 5;
       const clusters = splitIntoClustersByTime(allComments, maxClusters);
 
@@ -795,7 +745,7 @@ export default function SlangSpace({
         clusterGroup.userData.isCluster = true;
         clusterGroup.userData.slangTerm = slang.term;
 
-        // 查找可用的 slot（避免重叠）
+        //find slot
         const { faceIndex, slotIndex } = findAvailableSlot(periodIndex);
         clusterGroup.userData.periodIndex = periodIndex;
         clusterGroup.userData.faceIndex = faceIndex;
@@ -809,20 +759,14 @@ export default function SlangSpace({
 
         clusterGroup.position.copy(pos);
 
-        // 让簇面向外（从 cube 中心向外看）
         clusterGroup.lookAt(pos.clone().add(lookDir.multiplyScalar(100)));
-
-        // 在面上随机旋转 (0°, 90°, 180°, 270°)
         clusterGroup.rotateZ(extraRotation);
 
-        // 随机基础尺寸，增加参差感
         const randomBaseScale =
           CLUSTER_SIZE_MIN + Math.random() * (CLUSTER_SIZE_MAX - CLUSTER_SIZE_MIN);
 
-        // 结合簇内数量调整（数量多时略小）
         const countAdjust = Math.max(0.7, Math.min(1.3, 10 / cluster.length));
 
-        // 层级尺寸乘数：最内层(1-FACTOR)，中间层1，最外层(1+FACTOR)
         const totalPeriods = getTotalPeriods();
         const normalizedLayer = totalPeriods > 1 ? periodIndex / (totalPeriods - 1) : 0.5;
         const layerMultiplier = 1 + LAYER_SIZE_FACTOR * (normalizedLayer - 0.5) * 2;
@@ -858,7 +802,7 @@ export default function SlangSpace({
 
         cubeGroup.add(clusterGroup);
 
-        // 追踪簇信息（用于连接线）
+        // calculate avg time for cluster
         const avgTime =
           cluster.reduce((sum, c) => {
             return sum + (c.time ? new Date(c.time).getTime() : Date.now());
@@ -878,22 +822,19 @@ export default function SlangSpace({
     });
   }, [slangs]);
 
-  // handle tempSlang (temporary search result)
+  //  tempSlang (temporary search result) llm
   useEffect(() => {
     if (!sceneRef.current) return;
     const scene = sceneRef.current;
 
-    // 清除旧的临时 meshes
     tempMeshesRef.current.forEach((mesh) => {
-      // 从 allMeshesRef 中移除
       const idx = allMeshesRef.current.indexOf(mesh);
       if (idx > -1) allMeshesRef.current.splice(idx, 1);
     });
     tempMeshesRef.current = [];
 
-    // 清除旧的临时 groups，并释放 slots
     tempGroupsRef.current.forEach((group) => {
-      // 释放占用的 slot
+      // release slot
       if (group.userData.periodIndex !== undefined) {
         releaseSlot(group.userData.periodIndex, group.userData.faceIndex, group.userData.slotIndex);
       }
@@ -901,7 +842,6 @@ export default function SlangSpace({
     });
     tempGroupsRef.current = [];
 
-    // 清除临时 slang 的簇追踪信息
     slangClustersRef.current.forEach((clusters, term) => {
       const filtered = clusters.filter((c) => !c.isTemp);
       if (filtered.length === 0) {
@@ -911,10 +851,9 @@ export default function SlangSpace({
       }
     });
 
-    // 如果没有 tempSlang，结束
     if (!tempSlang) return;
 
-    // 如果这个 slang 已经在正式列表中，不需要创建临时 meshes
+    // avoid duplicate
     if (meshesRef.current.has(tempSlang.term)) return;
 
     const allComments = [];
@@ -939,7 +878,7 @@ export default function SlangSpace({
       clusterGroup.userData.slangTerm = tempSlang.term;
       clusterGroup.userData.isTemp = true;
 
-      // 查找可用的 slot（避免重叠）
+      // find slot
       const { faceIndex, slotIndex } = findAvailableSlot(periodIndex);
       clusterGroup.userData.periodIndex = periodIndex;
       clusterGroup.userData.faceIndex = faceIndex;
@@ -968,7 +907,7 @@ export default function SlangSpace({
         const mat = new THREE.MeshBasicMaterial({
           map: texture,
           side: THREE.DoubleSide,
-          color: slangGlowColor.clone(), // 临时片默认高亮显示（带发光）
+          color: slangGlowColor.clone(), // highlight
         });
         const geo = new THREE.PlaneGeometry(planeW, planeH);
         const mesh = new THREE.Mesh(geo, mat);
@@ -991,7 +930,6 @@ export default function SlangSpace({
       cubeGroup.add(clusterGroup);
       tempGroupsRef.current.push(clusterGroup);
 
-      // 追踪临时簇信息（用于连接线）
       const avgTime =
         cluster.reduce((sum, c) => {
           return sum + (c.time ? new Date(c.time).getTime() : Date.now());
@@ -1017,16 +955,16 @@ export default function SlangSpace({
     allMeshesRef.current.forEach((mesh) => {
       if (mesh.material) {
         if (mesh.userData.slangTerm === highlightSlang) {
-          // 匹配的 slang：高亮为红色（带发光）
+          // same slang
           mesh.material.color.copy(slangGlowColor);
         } else if (!mesh.userData.visited) {
-          // 非匹配且未访问过：恢复灰色
+          // restore
           mesh.material.color.setHex(NORMAL_COLOR);
         }
-        // 已访问过的片保持当前颜色（白色）
+        //visited
       }
     });
-  }, [highlightSlang, slangs]); // 也依赖 slangs，确保 meshes 创建后能触发高亮
+  }, [highlightSlang, slangs]);
 
   return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 }
