@@ -9,10 +9,9 @@ const headers = {
 };
 
 function sleep(ms) {
-  return new Promise(r => setTimeout(r, ms));
+  return new Promise((r) => setTimeout(r, ms));
 }
 
-// fetch comments with pagination
 async function fetchComments(slang, total) {
   let all = [];
   let after = null;
@@ -41,7 +40,6 @@ async function fetchComments(slang, total) {
       console.log(`Reddit page: got ${comments.length} raw results, after=${after}`);
 
       for (const c of comments) {
-        // comments use body, posts use selftext or title
         const text = c.data.body || c.data.selftext || c.data.title || "";
         if (text && text.toLowerCase().includes(slang.toLowerCase())) {
           all.push({
@@ -54,9 +52,7 @@ async function fetchComments(slang, total) {
         }
       }
 
-      // no more pages
       if (!after || comments.length === 0) break;
-
     } catch (err) {
       console.log("Reddit fetch error:", err.message);
       break;
@@ -75,7 +71,6 @@ async function fetchAllPeriods(slang, periods) {
 
   console.log(`Got ${comments.length} comments for "${slang}"`);
 
-  // distribute evenly
   const results = [];
   let idx = 0;
 

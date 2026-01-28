@@ -1,4 +1,3 @@
-// llm.js - talk to openrouter
 const fetch = require("node-fetch");
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -24,12 +23,12 @@ Be specific about cultural moments: songs, artists, memes, events that shifted t
 Return ONLY valid JSON, no markdown, no explanation.`;
 }
 
-// streaming version - yields chunks
+// streaming, advised by llm
 async function* streamAnalysis(slang, apiKey) {
   const res = await fetch(OPENROUTER_URL, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${apiKey}`,
+      Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -49,7 +48,7 @@ async function* streamAnalysis(slang, apiKey) {
   for await (const chunk of reader) {
     buffer += chunk.toString();
     const lines = buffer.split("\n");
-    buffer = lines.pop(); // keep incomplete line
+    buffer = lines.pop(); //for incomplete
 
     for (const line of lines) {
       if (line.startsWith("data: ")) {
@@ -67,12 +66,12 @@ async function* streamAnalysis(slang, apiKey) {
   }
 }
 
-// non-streaming version for simplicity
+// non-streaming
 async function analyzeSlang(slang, apiKey) {
   const res = await fetch(OPENROUTER_URL, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${apiKey}`,
+      Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -90,9 +89,7 @@ async function analyzeSlang(slang, apiKey) {
   const data = await res.json();
   const content = data.choices?.[0]?.message?.content;
 
-  // try to parse JSON from response
   try {
-    // sometimes LLM wraps in ```json blocks
     let cleaned = content.trim();
     if (cleaned.startsWith("```")) {
       cleaned = cleaned.replace(/```json?\n?/g, "").replace(/```/g, "");
