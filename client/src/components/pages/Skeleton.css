@@ -261,3 +261,97 @@ body {
   font-size: 11px;
   margin: 0;
 }
+
+/* Intro Modal */
+.intro-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.intro-modal {
+  background: rgba(10, 10, 10, 0.85);
+  border: 1px solid #333;
+  padding: 50px 60px;
+  max-width: 750px;
+  text-align: center;
+}
+
+.intro-title {
+  font-size: 32px;
+  font-weight: normal;
+  color: #fff;
+  margin: 0 0 5px 0;
+  letter-spacing: 3px;
+}
+
+.intro-subtitle {
+  font-size: 14px;
+  color: #555;
+  margin: 0 0 35px 0;
+  font-style: italic;
+}
+
+.intro-text {
+  text-align: left;
+  margin-bottom: 35px;
+}
+
+.intro-text p {
+  color: #888;
+  font-size: 14px;
+  line-height: 1.8;
+  margin: 0 0 14px 0;
+}
+
+.intro-text strong {
+  color: #aaa;
+}
+
+.intro-flow {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 35px;
+}
+
+.flow-label {
+  color: #666;
+  font-size: 16px;
+}
+
+.flow-arrow {
+  color: #444;
+  font-size: 20px;
+}
+
+.flow-loop {
+  font-size: 18px;
+  color: #555;
+  margin-left: 4px;
+}
+
+.intro-enter-btn {
+  background: rgba(26, 26, 26, 0.8);
+  border: 1px solid #444;
+  color: #888;
+  padding: 12px 50px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.intro-enter-btn:hover {
+  border-color: #666;
+  color: #aaa;
+}

@@ -60,11 +60,10 @@ app.use(validator.checkRoutes);
 // allow us to process POST requests
 app.use(express.json());
 
-// set up a session, which will persist login data across requests
+// set up a session
 app.use(
   session({
-    // TODO: add a SESSION_SECRET string in your .env file, and replace the secret with process.env.SESSION_SECRET
-    secret: "session-secret",
+    secret: process.env.SESSION_SECRET || "session-secret",
     resave: false,
     saveUninitialized: false,
   })
@@ -108,8 +107,8 @@ app.use((err, req, res, next) => {
   });
 });
 
-// hardcode port to 3000 for now
-const port = 3000;
+// environment variable for port (Render),3000 local
+const port = process.env.PORT || 3000;
 const server = http.Server(app);
 socketManager.init(server);
 
