@@ -101,7 +101,7 @@ function getCubeRotation(periodIndex) {
 }
 
 /////////////////////////////////
-///Slot
+///Slot, adjusted by llm
 const GRID_SIZE = 4;
 const TOTAL_SLOTS = GRID_SIZE * GRID_SIZE;
 const SLOT_JITTER = 0.08; ////
