@@ -12,19 +12,19 @@ const TILE_BASE_WIDTH = 5;
 const TILE_BASE_HEIGHT = 3;
 const TILE_GAP = 1.5;
 
-// cube 时间相关
+// cube of time
 const START_YEAR = 2019;
-const START_MONTH = 1; // 起始月份 (1-12)
-const MONTHS_PER_CUBE = 6; // 每个 cube 代表几个月
+const START_MONTH = 1;
+const MONTHS_PER_CUBE = 6; /////////////
 const END_YEAR = 2025;
-const END_MONTH = 12; // 结束月份
+const END_MONTH = 12; //  cutoff
 
-// cube 尺寸相关
-const INNER_CUBE_SIZE = 60; // 最内层 cube 的大小
-const OUTER_CUBE_SIZE = 360; // 最外层 cube 的大小
-const CUBE_TWIST = 0.7; // 每层 cube 之间的扭转角度 (弧度)
+// cube size
+const INNER_CUBE_SIZE = 60; // inner cube
+const OUTER_CUBE_SIZE = 360; // biggest cube
+const CUBE_TWIST = 0.7;
 
-// 背景假片相关
+// fake background tiles
 const BG_TILE_COUNT = 1000; // 背景假片数量
 const BG_MIN_DIST = 390; // 假片最近距离
 const BG_MAX_DIST = 500; // 假片最远距离
@@ -63,6 +63,11 @@ const CUBE_EDGE_SKIP_INNER = 2; // 最内层几个 cube 不显示边框
 // Cube 时间标签相关
 const CUBE_LABEL_OPACITY = 1; // 标签透明度 (0 = 隐形)
 const CUBE_LABEL_SIZE = 8; // 标签尺寸
+
+// 簇连接线相关
+const CONNECTION_LINE_WIDTH = 2; // 连接线粗细
+const SLANG_LABEL_SIZE = 12; // slang 文字标签尺寸
+const SLANG_LABEL_OFFSET = 15; // 文字标签离第一个簇的距离
 /////////////////////////////////
 
 // 按时间分簇
@@ -359,6 +364,39 @@ function createCubeLabel(periodIndex, cubeSize) {
   return mesh;
 }
 
+// 创建 slang 文字标签（用于连接线起点）
+function createSlangLabel(text) {
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  canvas.width = 512;
+  canvas.height = 128;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // 使用 slangGlowColor 的颜色
+  const r = Math.min(255, Math.floor(slangGlowColor.r * 255));
+  const g = Math.min(255, Math.floor(slangGlowColor.g * 255));
+  const b = Math.min(255, Math.floor(slangGlowColor.b * 255));
+  ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+  ctx.font = "bold 64px 'Consolas', 'Monaco', monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: false,
+  });
+
+  const sprite = new THREE.Sprite(material);
+  const aspect = canvas.width / canvas.height;
+  sprite.scale.set(SLANG_LABEL_SIZE * aspect, SLANG_LABEL_SIZE, 1);
+
+  return sprite;
+}
+
 export default function SlangSpace({
   slangs,
   tempSlang,
@@ -374,6 +412,8 @@ export default function SlangSpace({
   const tempGroupsRef = useRef([]); // 临时搜索结果的 groups
   const cubeGroupsRef = useRef(new Map()); // periodIndex -> Group
   const occupiedSlotsRef = useRef(new Map()); // "periodIndex-faceIndex-slotIndex" -> true
+  const slangClustersRef = useRef(new Map()); // slangTerm -> [{ group, avgTime, cubeGroup }]
+  const connectionObjectsRef = useRef([]); // 当前显示的连接线和标签
 
   // 查找可用的 slot（4x4 网格，优先边缘格子）
   const findAvailableSlot = (periodIndex) => {
@@ -460,6 +500,59 @@ export default function SlangSpace({
     let hoveredSlang = null;
     let directHoveredMesh = null;
 
+    // 清除连接线和标签
+    const clearConnections = () => {
+      connectionObjectsRef.current.forEach((obj) => {
+        if (obj.parent) obj.parent.remove(obj);
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) {
+          if (obj.material.map) obj.material.map.dispose();
+          obj.material.dispose();
+        }
+      });
+      connectionObjectsRef.current = [];
+    };
+
+    // 创建连接线和标签
+    const createConnections = (slangTerm) => {
+      const clusters = slangClustersRef.current.get(slangTerm);
+      if (!clusters || clusters.length < 2) return;
+
+      // 按时间排序（最早到最新）
+      const sorted = [...clusters].sort((a, b) => a.avgTime - b.avgTime);
+
+      // 获取每个簇的世界坐标
+      const positions = sorted.map(({ group, cubeGroup }) => {
+        const worldPos = new THREE.Vector3();
+        group.getWorldPosition(worldPos);
+        return worldPos;
+      });
+
+      // 创建连接线（使用 Line2 实现粗线条，但简单起见用多条细线模拟）
+      // 使用 LineBasicMaterial 的 linewidth 在 WebGL 中可能不生效，所以用 BufferGeometry
+      const lineGeometry = new THREE.BufferGeometry().setFromPoints(positions);
+      const lineMaterial = new THREE.LineBasicMaterial({
+        color: slangGlowColor,
+        linewidth: CONNECTION_LINE_WIDTH,
+      });
+      const line = new THREE.Line(lineGeometry, lineMaterial);
+      scene.add(line);
+      connectionObjectsRef.current.push(line);
+
+      // 创建 slang 文字标签
+      const label = createSlangLabel(slangTerm);
+
+      // 计算标签位置：在第一个簇的位置，沿着从第二个簇指向第一个簇的方向偏移
+      const firstPos = positions[0];
+      const secondPos = positions[1];
+      const direction = new THREE.Vector3().subVectors(firstPos, secondPos).normalize();
+      const labelPos = firstPos.clone().add(direction.multiplyScalar(SLANG_LABEL_OFFSET));
+
+      label.position.copy(labelPos);
+      scene.add(label);
+      connectionObjectsRef.current.push(label);
+    };
+
     const onMouseMove = (e) => {
       const rect = renderer.domElement.getBoundingClientRect();
       mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -499,6 +592,8 @@ export default function SlangSpace({
                 m.material.color.setHex(m.userData.visited ? HIGHLIGHT_COLOR : NORMAL_COLOR);
               }
             });
+            // 清除旧的连接线
+            clearConnections();
           }
 
           // 高亮新的 slang 的所有片
@@ -513,6 +608,9 @@ export default function SlangSpace({
               }
             }
           });
+
+          // 创建新的连接线
+          createConnections(slangTerm);
         }
       } else {
         // 鼠标离开所有片
@@ -523,6 +621,8 @@ export default function SlangSpace({
               m.material.color.setHex(m.userData.visited ? HIGHLIGHT_COLOR : NORMAL_COLOR);
             }
           });
+          // 清除连接线
+          clearConnections();
           hoveredSlang = null;
         }
         directHoveredMesh = null;
@@ -566,6 +666,7 @@ export default function SlangSpace({
       window.removeEventListener("resize", onResize);
       renderer.domElement.removeEventListener("mousemove", onMouseMove);
       renderer.domElement.removeEventListener("click", onClick);
+      clearConnections();
       composer.dispose();
       renderer.dispose();
       if (containerRef.current) {
@@ -756,6 +857,21 @@ export default function SlangSpace({
         });
 
         cubeGroup.add(clusterGroup);
+
+        // 追踪簇信息（用于连接线）
+        const avgTime =
+          cluster.reduce((sum, c) => {
+            return sum + (c.time ? new Date(c.time).getTime() : Date.now());
+          }, 0) / cluster.length;
+
+        if (!slangClustersRef.current.has(slang.term)) {
+          slangClustersRef.current.set(slang.term, []);
+        }
+        slangClustersRef.current.get(slang.term).push({
+          group: clusterGroup,
+          avgTime,
+          cubeGroup,
+        });
       });
 
       meshesRef.current.set(slang.term, true);
@@ -784,6 +900,16 @@ export default function SlangSpace({
       if (group.parent) group.parent.remove(group);
     });
     tempGroupsRef.current = [];
+
+    // 清除临时 slang 的簇追踪信息
+    slangClustersRef.current.forEach((clusters, term) => {
+      const filtered = clusters.filter((c) => !c.isTemp);
+      if (filtered.length === 0) {
+        slangClustersRef.current.delete(term);
+      } else {
+        slangClustersRef.current.set(term, filtered);
+      }
+    });
 
     // 如果没有 tempSlang，结束
     if (!tempSlang) return;
@@ -864,6 +990,22 @@ export default function SlangSpace({
 
       cubeGroup.add(clusterGroup);
       tempGroupsRef.current.push(clusterGroup);
+
+      // 追踪临时簇信息（用于连接线）
+      const avgTime =
+        cluster.reduce((sum, c) => {
+          return sum + (c.time ? new Date(c.time).getTime() : Date.now());
+        }, 0) / cluster.length;
+
+      if (!slangClustersRef.current.has(tempSlang.term)) {
+        slangClustersRef.current.set(tempSlang.term, []);
+      }
+      slangClustersRef.current.get(tempSlang.term).push({
+        group: clusterGroup,
+        avgTime,
+        cubeGroup,
+        isTemp: true,
+      });
     });
   }, [tempSlang]);
 
